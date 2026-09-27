@@ -15,7 +15,7 @@
 |---|---|
 | 账号密码登录 | 对接 V2Board 面板，凭据本地 `0600` 明文保存（边界见[安全说明](#配置与安全)） |
 | 签到 | 支持"已签到"识别 |
-| 节点列表 | 解析订阅（sing-box JSON，20+ 节点），`--test` 经 Clash API 并行实测延迟 |
+| 节点列表 | 解析订阅（sing-box JSON，20+ 节点），`--test` 经 Clash API 并行实测延迟并按从低到高排序 |
 | 一键连接 | 选节点 + 起内核，本地混合代理 `127.0.0.1:7891` |
 | TUN 全局接管 | 订阅自带 `tun-in`（`auto_route`），授权后无需任何程序支持代理 |
 | 三种订阅模式 | 智能首选 / 全球直连 / 全局代理，Clash API 运行时切换 |
@@ -59,7 +59,7 @@ cd /opt/nano-vpn && ./install.sh
   - 大连接/断开按钮；
   - 三个模式 chip：智能首选 / 全球直连 / 全局代理；
   - TUN 开关（未授权时 toast 提示运行 `nanovpn tun-setup`）；
-  - 节点列表（tag/类型/延迟，点击即连；置顶"自动选择"）；
+  - 节点列表（tag/类型/延迟，按延迟从低到高排序；点击即连；置顶"自动选择"）；
   - 底部：刷新节点 / 签到 / 测试延迟 / 登录；
   - 账号信息行：流量 used/total、到期时间、连续签到天数。
 - 数据经 `Proc.runCommand` 调 `nanovpn status --json` 等，status 3s 轮询；
@@ -73,7 +73,7 @@ nanovpn login [email] [password]      # 缺省交互式读入；保存 credentia
 nanovpn logout                        # 删除 credentials 与 auth
 nanovpn checkin                       # 签到；已签到则提示"今天已经签到过了"
 nanovpn panel [--json]                # 账号信息：套餐/流量/到期/签到状态
-nanovpn nodes [--json] [--test]       # 节点列表；--test 经 Clash API 实测延迟并写回 nodes.json
+nanovpn nodes [--json] [--test]       # 节点列表；--test 经 Clash API 实测延迟并写回 nodes.json，按延迟从低到高排序
 nanovpn connect [node] [--tun|--no-tun]   # 选节点(缺省用设置里的 node 或第一个)、起内核
 nanovpn disconnect                    # 停内核
 nanovpn toggle                        # 连/断切换

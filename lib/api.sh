@@ -208,9 +208,27 @@ nvp_nodes_refresh() {
     '. + {selected: (if ($sel == "" or ([.nodes[].tag] | index($sel) | not))
                      then (.nodes[0].tag // "") else $sel end),
            mode: $mode}' > "$NANOVPN_NODES"
+  # 有实测延迟就按从低到高排（刷新不丢延迟，顺序也随之恢复）
+  nvp_nodes_sort_by_latency
 }
 
 # ---------------------------------------------------------------- 延迟测试
+
+# 按实测延迟升序排 nodes.json 的 .nodes：延迟最低在前，未测到的 null 排最后；
+# 全部未测时保持订阅原序（避免无谓的顺序变动）。
+# 排序落在 nodes.json 上，CLI 显示与 DMS 插件（按 nodes 数组顺序渲染）同时生效。
+nvp_nodes_sort_by_latency() {
+  local file="${1:-$NANOVPN_NODES}" tmp
+  [[ -f "$file" ]] || return 0
+  tmp="$(mktemp)"
+  if jq 'if any(.nodes[]?; .latency_ms != null)
+         then .nodes |= sort_by(if .latency_ms == null then 999999999 else .latency_ms end)
+         else . end' "$file" > "$tmp" 2>/dev/null; then
+    mv "$tmp" "$file"
+  else
+    rm -f "$tmp"
+  fi
+}
 
 # 内核运行中：走 Clash API 的 delay 接口（tuic 是 QUIC/UDP，TCP 拨号测不了）
 # tag 含 emoji/中文必须 URL 编码；并行测（xargs -P 12），22 个节点 ~10s 内完成
@@ -252,7 +270,7 @@ EOF
   NVP_OUTDIR="$tmpdir" \
     xargs -P 12 -a "$tmpdir/list" -I{} "$runner" {}
 
-  # 结果写回 nodes.json 的 latency_ms
+  # 结果写回 nodes.json 的 latency_ms，并按延迟从低到高排序（最低在前，未测到的排最后）
   local filter="." i lat tmp
   for ((i=0; i<n; i++)); do
     lat="$(cat "$tmpdir/$i" 2>/dev/null || echo null)"
@@ -262,6 +280,7 @@ EOF
   rm -rf "$tmpdir"
   tmp="$(mktemp)"
   jq "$filter" "$NANOVPN_NODES" > "$tmp" && mv "$tmp" "$NANOVPN_NODES"
+  nvp_nodes_sort_by_latency
 }
 
 # 降级：TCP 拨号近似值（--no-core 时用；tuic 等 UDP 协议测不出，结果仅供参考）
@@ -303,4 +322,6 @@ nvp_nodes_test_tcp() {
   rm -rf "$tmpdir"
   tmp="$(mktemp)"
   jq "$filter" "$NANOVPN_NODES" > "$tmp" && mv "$tmp" "$NANOVPN_NODES"
+  # 同样按延迟从低到高排序（TCP 近似值路径）
+  nvp_nodes_sort_by_latency
 }

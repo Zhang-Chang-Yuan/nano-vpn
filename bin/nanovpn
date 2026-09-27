@@ -21,7 +21,7 @@ nvp_usage() {
   logout                      退出登录（删除凭据与 auth）
   checkin                     签到；已签到则提示"今天已经签到过了"
   panel [--json]              账号信息：套餐/流量/到期/签到状态
-  nodes [--json] [--test]     节点列表；--test 测延迟（内核在跑走 Clash API，否则自动拉起；--no-core 退回 TCP 近似值）
+  nodes [--json] [--test]     节点列表；--test 测延迟（内核在跑走 Clash API，否则自动拉起；--no-core 退回 TCP 近似值），测完按延迟从低到高排序
   connect [node] [--tun|--no-tun]  选节点并启动内核（缺省用设置里的 node 或第一个节点）
   disconnect                  停止内核
   toggle                      连/断切换

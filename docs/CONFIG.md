@@ -41,7 +41,7 @@ password=********
 |---|---|---|
 | `auth` | 面板登录返回的 JWT（`data.auth_data`），`0600` | **高**：持有即可调用面板 API |
 | `subscription.json` | 订阅正文（sing-box 完整配置），另存 `subscribe_url` | **高**：`subscribe_url` 自带 token，泄露 = 订阅被盗用 |
-| `nodes.json` | 从订阅解析出的节点列表（tag/类型/服务器/端口/延迟） | 中：暴露所用节点 |
+| `nodes.json` | 从订阅解析出的节点列表（tag/类型/服务器/端口/延迟）；`--test` 后按延迟从低到高排序 | 中：暴露所用节点 |
 | `runtime.json` | 实际喂给 sing-box 的配置（由订阅 JSON 经 jq 变换） | 中 |
 | `panel.json` | 最近一次账号信息（套餐/流量/到期/签到）缓存 | 中：含邮箱 |
 | `status.json` | 连接状态（state/node/mode/ip/uptime…），DMS 轮询用 | 低 |
