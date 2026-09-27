@@ -4,6 +4,20 @@ tools/sing-box
 # 运行时目录（正常位于 HOME 下；防止误提交）
 .nanovpn/
 
+# 凭据与敏感运行时文件（防误提交进仓库：账号密码 / JWT / 订阅 token）
+credentials
+auth
+subscription.json
+subscription.normalized.json
+nodes.json
+runtime.json
+panel.json
+status.json
+ip.json
+*.token
+.env
+.env.*
+
 # Python
 __pycache__/
 *.py[cod]

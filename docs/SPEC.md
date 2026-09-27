@@ -174,7 +174,7 @@ nanovpn login [email] [password]      # 缺省交互式读入；保存 credentia
 nanovpn logout                        # 删除 credentials 与 auth
 nanovpn checkin                       # 签到；已签到则提示"今天已经签到过了"
 nanovpn panel [--json]                # 账号信息：套餐/流量/到期/签到状态
-nanovpn nodes [--json] [--test]       # 节点列表；--test 测 TCP 延迟并写回 nodes.json
+nanovpn nodes [--json] [--test]       # 节点列表；--test 实测延迟并写回 nodes.json，按延迟从低到高排序
 nanovpn connect [node] [--tun|--no-tun]   # 选节点(缺省用设置里的 node 或第一个)、起内核
 nanovpn disconnect                    # 停内核
 nanovpn toggle                        # 连/断切换
@@ -216,7 +216,10 @@ nanovpn uninstall                     # 反向
  "modes":["智能首选","全球直连","全局代理"]}
 ```
 
-- `latency_ms` 无测得值为 `null`；`--test` 时并行 TCP 连接测距（域名先解析，3s 超时）。
+- `latency_ms` 无测得值为 `null`；`--test` 时并行实测延迟（内核在跑走 Clash API delay 接口，`--no-core` 退回 TCP 拨号近似值，域名先解析，3s 超时）。
+- **排序**：`--test` 后（以及任何持有实测延迟的刷新）`.nodes` 按 `latency_ms` 升序排列——
+  延迟最低在前，未测得的 `null` 排最后；全部未测时保持订阅原序。
+  默认选中节点（设置里的 `node` 缺省时取 `.nodes[0]`）因此指向当前最快的已测节点。
 - 节点 = outbounds 里 `type` 不属于 `selector/urltest/direct/block/dns` 的项。
 - `modes` 从订阅 route rules 的 `clash_mode` 值去重 + `experimental.clash_api.default_mode`。
 
