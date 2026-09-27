@@ -55,7 +55,11 @@ cd /opt/nano-vpn && ./install.sh
 - **药丸**（`vpn_lock` 图标）：已连接 `Theme.primary` / 断开
   `Theme.surfaceVariantText` / 连接中呼吸动画 / 错误 `Theme.error`；可选显示节点简称。
 - **弹层**（点击药丸）：
-  - 头部：连接状态 + 出口 IP；
+  - 「Nano VPN」标题行可点击：`Qt.openUrlExternally` 用默认浏览器打开官网
+    https://16.76.177.124/ （悬停时变 `Theme.primary` + 下划线 + 手型光标；弹层不关闭、不断开连接）；
+    标题固定在弹层最顶部，内置 `headerText` / `detailsText` 均置空不渲染，无残留空白；
+  - 标题正下方是状态行：连接状态（未连接/连接中/已连接 <tag>）+ 出口 IP/错误原因，
+    自绘 `StyledText` 复刻内置 popoutDetails 样式（可换行，随 `statusLine` 实时刷新）；
   - 大连接/断开按钮；
   - 三个模式 chip：智能首选 / 全球直连 / 全局代理；
   - TUN 开关（未授权时 toast 提示运行 `nanovpn tun-setup`）；

@@ -10,6 +10,9 @@ PluginComponent {
     // 自动选择 = 订阅里的 urltest 组 tag
     readonly property string autoTag: "♻️ 自动选择"
 
+    // 官网地址：弹层标题被点击时用默认浏览器打开（唯一出处，点击逻辑不散落硬编码）
+    readonly property string officialUrl: "https://16.76.177.124/"
+
     // 设置（pluginData 由 PluginComponent 从 settings.json 注入）
     property string nanoPath: pluginData.nanoPath || "nanovpn"
     property bool showNodeLabel: pluginData.showNodeLabel !== false
@@ -404,8 +407,12 @@ PluginComponent {
         PopoutComponent {
             id: popout
 
-            headerText: I18n.trFor("nanoVpn", "Nano VPN")
-            detailsText: root.statusLine
+            // 内置标题是不可交互的 StyledText（无 MouseArea）；内置状态行 popoutDetails 又排在
+            // 内容 Column 之前（会把状态行顶到标题上方），故 headerText / detailsText 均置空
+            // （visible 依赖文本长度 → 高度 0，不留空白、无重复状态行），改由内容 Column 顶部
+            // 的自绘标题行 titleRow（可点击开官网）+ 紧随其下的自绘状态行顶替
+            headerText: ""
+            detailsText: ""
             // 不显示右上角 ❌：点击弹层外任意处（桌面/其他窗口）即会关闭
             showCloseButton: false
 
@@ -432,6 +439,48 @@ PluginComponent {
             Column {
                 width: parent.width
                 spacing: Theme.spacingM
+
+                // 自绘标题行：替代 PopoutComponent 内置标题（headerText 已置空），
+                // 与原内置标题栏等高 40、左对齐；点击用默认浏览器打开官网，
+                // 不关闭弹层、不影响连接状态
+                Item {
+                    id: titleRow
+                    width: parent.width
+                    height: 40
+
+                    StyledText {
+                        anchors.left: parent.left
+                        anchors.leftMargin: 0
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: I18n.trFor("nanoVpn", "Nano VPN")
+                        font.pixelSize: Theme.fontSizeLarge + 4
+                        font.weight: Font.Bold
+                        color: titleArea.containsMouse ? Theme.primary : Theme.surfaceText
+                        font.underline: titleArea.containsMouse
+                    }
+
+                    MouseArea {
+                        id: titleArea
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: Qt.openUrlExternally(root.officialUrl)
+                    }
+                }
+
+                // 自绘状态行：复刻 PopoutComponent 内置 popoutDetails 的样式（左/下内边距
+                // Theme.spacingS、Theme.fontSizeMedium、Theme.surfaceVariantText、WordWrap 换行），
+                // 排在 titleRow 正下方，随 statusLine 实时变化（未连接/连接中/已连接·出口IP/错误）；
+                // 内置 detailsText 已置空，不会出现重复状态行
+                StyledText {
+                    width: parent.width
+                    leftPadding: Theme.spacingS
+                    bottomPadding: Theme.spacingS
+                    text: root.statusLine
+                    font.pixelSize: Theme.fontSizeMedium
+                    color: Theme.surfaceVariantText
+                    wrapMode: Text.WordWrap
+                }
 
                 DankButton {
                     width: parent.width
