@@ -59,6 +59,9 @@
     "Disconnected": {
         "Disconnected": "已断开"
     },
+    "Email": {
+        "Email": "邮箱"
+    },
     "Error: %1": {
         "Error: %1": "错误：%1"
     },
@@ -74,8 +77,20 @@
     "Latency test finished": {
         "Latency test finished": "延迟测试完成"
     },
+    "Logged in": {
+        "Logged in": "登录成功"
+    },
+    "Logged out": {
+        "Logged out": "已退出登录"
+    },
     "Login": {
         "Login": "登录"
+    },
+    "Login failed": {
+        "Login failed": "登录失败"
+    },
+    "Logout": {
+        "Logout": "登出"
     },
     "Mode": {
         "Mode": "模式"
@@ -107,8 +122,11 @@
     "Path or name of the nanovpn CLI used by the widget": {
         "Path or name of the nanovpn CLI used by the widget": "控件使用的 nanovpn CLI 路径或名称"
     },
-    "Please run nanovpn login in a terminal to sign in": {
-        "Please run nanovpn login in a terminal to sign in": "请在终端运行 nanovpn login 登录"
+    "Password": {
+        "Password": "密码"
+    },
+    "Please enter email and password": {
+        "Please enter email and password": "请输入邮箱和密码"
     },
     "Refresh Nodes": {
         "Refresh Nodes": "刷新节点"

@@ -35,6 +35,8 @@ PluginComponent {
     property var modesList: []
     property string selectedNode: ""
     property var panelInfo: ({})
+    // 账号登录态（panel --json 的 logged_in）：驱动"登录/登出"按钮标签与账号信息区显隐
+    readonly property bool loggedIn: panelInfo.logged_in === true
 
     readonly property bool busy: vpnState === "starting"
 
@@ -137,10 +139,13 @@ PluginComponent {
 
     function fetchStatus() {
         runCli(["status", "--json"], 20000, (out, code) => {
-            if (code !== 0) {
+            // 127 = exec 失败（真找不到命令）；其他退出码是 CLI 业务错误，不提示"命令找不到"
+            if (code === 127) {
                 notifyCmdMissing();
                 return;
             }
+            if (code !== 0)
+                return;
             cmdMissing = false;
             let data = null;
             try {
@@ -163,10 +168,12 @@ PluginComponent {
 
     function fetchPanel() {
         runCli(["panel", "--json"], 20000, (out, code) => {
-            if (code !== 0) {
+            if (code === 127) {
                 notifyCmdMissing();
                 return;
             }
+            if (code !== 0)
+                return;
             try {
                 panelInfo = JSON.parse(out) || {};
             } catch (e) {
@@ -177,10 +184,13 @@ PluginComponent {
 
     function fetchNodes() {
         runCli(["nodes", "--json"], 30000, (out, code) => {
-            if (code !== 0) {
+            // 未登录时 nodes 会非零退出（CLI 要 auth），但命令本身存在，别误报"命令找不到"
+            if (code === 127) {
                 notifyCmdMissing();
                 return;
             }
+            if (code !== 0)
+                return;
             let data = null;
             try {
                 data = JSON.parse(out);
@@ -295,8 +305,17 @@ PluginComponent {
         });
     }
 
-    function promptLogin() {
-        ToastService.showInfo(I18n.trFor("nanoVpn", "Nano VPN"), I18n.trFor("nanoVpn", "Please run nanovpn login in a terminal to sign in"));
+    // 登出：删凭据与 auth；随后刷新 panel/status/nodes，按钮标签回到"登录"、登录表单重新显示
+    function doLogout() {
+        runCli(["logout"], 20000, (out, code) => {
+            if (code === 0)
+                ToastService.showInfo(I18n.trFor("nanoVpn", "Nano VPN"), I18n.trFor("nanoVpn", "Logged out"));
+            else
+                notifyFailure(["logout"]);
+            fetchPanel();
+            fetchStatus();
+            fetchNodes();
+        });
     }
 
     Timer {
@@ -378,7 +397,8 @@ PluginComponent {
 
             headerText: I18n.trFor("nanoVpn", "Nano VPN")
             detailsText: root.statusLine
-            showCloseButton: true
+            // 不显示右上角 ❌：点击弹层外任意处（桌面/其他窗口）即会关闭
+            showCloseButton: false
 
             Component.onCompleted: {
                 root.fetchPanel();
@@ -531,32 +551,58 @@ PluginComponent {
                     }
                 }
 
+                // 账号信息：已登录才显示；顺序为 账号 → 流量（进度条）→ 到期
                 Column {
                     width: parent.width
-                    spacing: Theme.spacingXS
-                    visible: root.panelInfo.logged_in !== undefined
+                    spacing: Theme.spacingS
+                    visible: root.loggedIn
 
-                    StyledText {
-                        width: parent.width
-                        text: root.trafficLine
-                        font.pixelSize: Theme.fontSizeSmall
-                        color: Theme.surfaceText
-                    }
-
+                    // 账号
                     StyledText {
                         width: parent.width
                         text: root.emailLine
-                        font.pixelSize: Theme.fontSizeSmall
-                        color: Theme.surfaceVariantText
+                        font.pixelSize: Theme.fontSizeMedium
+                        color: Theme.surfaceText
+                        elide: Text.ElideRight
                     }
 
+                    // 流量：used/total + 占比进度条
+                    Column {
+                        width: parent.width
+                        spacing: 2
+
+                        StyledText {
+                            width: parent.width
+                            text: root.trafficLine
+                            font.pixelSize: Theme.fontSizeMedium
+                            color: Theme.surfaceText
+                        }
+
+                        StyledRect {
+                            width: parent.width
+                            height: 6
+                            radius: 3
+                            color: Theme.surfaceContainerHighest
+
+                            StyledRect {
+                                anchors.left: parent.left
+                                anchors.verticalCenter: parent.verticalCenter
+                                height: parent.height
+                                radius: 3
+                                width: Math.max(0, Math.min(1, root.panelInfo.used_ratio || 0)) * parent.width
+                                color: Theme.primary
+                            }
+                        }
+                    }
+
+                    // 到期 + 连续签到
                     Row {
                         width: parent.width
                         spacing: Theme.spacingM
 
                         StyledText {
                             text: root.expireLine
-                            font.pixelSize: Theme.fontSizeSmall
+                            font.pixelSize: Theme.fontSizeMedium
                             color: Theme.surfaceVariantText
                         }
 
@@ -602,13 +648,68 @@ PluginComponent {
                         onClicked: root.doCheckin()
                     }
 
+                    // 登录/登出：与 刷新节点/测试延迟/签到 平行；按登录态切换标签，不显示账号
                     DankButton {
-                        text: I18n.trFor("nanoVpn", "Login")
-                        iconName: "login"
+                        text: root.loggedIn ? I18n.trFor("nanoVpn", "Logout") : I18n.trFor("nanoVpn", "Login")
+                        iconName: root.loggedIn ? "logout" : "login"
                         buttonHeight: 32
                         backgroundColor: Theme.surfaceContainerHigh
                         textColor: Theme.surfaceText
-                        onClicked: root.promptLogin()
+                        onClicked: root.loggedIn ? root.doLogout() : emailField.forceActiveFocus()
+                    }
+                }
+
+                // 登录表单：未登录时显示；凭据交给 CLI 落盘 0600，插件不自行存储
+                Column {
+                    width: parent.width
+                    spacing: Theme.spacingS
+                    visible: !root.loggedIn
+
+                    DankTextField {
+                        id: emailField
+                        width: parent.width
+                        placeholderText: I18n.trFor("nanoVpn", "Email")
+                        leftIconName: "mail"
+                    }
+
+                    DankTextField {
+                        id: passwordField
+                        width: parent.width
+                        placeholderText: I18n.trFor("nanoVpn", "Password")
+                        leftIconName: "lock"
+                        echoMode: TextInput.Password
+                        showPasswordToggle: true
+                        onAccepted: loginSubmit.clicked()
+                    }
+
+                    DankButton {
+                        id: loginSubmit
+                        width: parent.width
+                        text: I18n.trFor("nanoVpn", "Login")
+                        iconName: "login"
+                        buttonHeight: 36
+                        enabled: emailField.text.trim().length > 0 && passwordField.text.length > 0
+                        onClicked: {
+                            const email = emailField.text.trim();
+                            const pwd = passwordField.text;
+                            if (!email || !pwd) {
+                                ToastService.showWarning(I18n.trFor("nanoVpn", "Nano VPN"), I18n.trFor("nanoVpn", "Please enter email and password"));
+                                return;
+                            }
+                            // 密码立即从界面清掉；CLI 负责写 credentials(0600)
+                            passwordField.text = "";
+                            root.runCli(["login", email, pwd], 30000, (out, code) => {
+                                if (code === 0) {
+                                    emailField.text = "";
+                                    ToastService.showInfo(I18n.trFor("nanoVpn", "Nano VPN"), I18n.trFor("nanoVpn", "Logged in"));
+                                } else {
+                                    ToastService.showError(I18n.trFor("nanoVpn", "Nano VPN"), out.trim() || I18n.trFor("nanoVpn", "Login failed"));
+                                }
+                                root.fetchPanel();
+                                root.fetchStatus();
+                                root.fetchNodes();
+                            });
+                        }
                     }
                 }
             }

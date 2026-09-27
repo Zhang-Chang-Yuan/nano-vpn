@@ -60,8 +60,9 @@ cd /opt/nano-vpn && ./install.sh
   - 三个模式 chip：智能首选 / 全球直连 / 全局代理；
   - TUN 开关（未授权时 toast 提示运行 `nanovpn tun-setup`）；
   - 节点列表（tag/类型/延迟，按延迟从低到高排序；点击即连；置顶"自动选择"）；
-  - 底部：刷新节点 / 签到 / 测试延迟 / 登录；
-  - 账号信息行：流量 used/total、到期时间、连续签到天数。
+  - 底部：刷新节点 / 测试延迟 / 签到 / 登录·登出（按登录态切换标签，登录在弹层内输账号密码）；
+  - 账号信息：账号、流量（进度条）/总量、到期时间、连续签到天数；
+  - 弹层不显示关闭按钮，点击弹层外任意处即关闭。
 - 数据经 `Proc.runCommand` 调 `nanovpn status --json` 等，status 3s 轮询；
   命令找不到时 toast 提示运行 `nanovpn install`。
 - 插件设置（设置 → Plugins → NanoVpn）：是否显示节点名、轮询间隔、`nanovpn` 路径。
