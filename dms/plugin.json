@@ -1,0 +1,18 @@
+{
+    "id": "nanoVpn",
+    "name": "Nano VPN",
+    "description": "Control the nanovpn proxy client from the DankBar",
+    "version": "1.0.0",
+    "author": "nano-vpn",
+    "type": "widget",
+    "capabilities": ["dankbar-widget"],
+    "component": "./NanoVpnWidget.qml",
+    "icon": "vpn_lock",
+    "settings": "./NanoVpnSettings.qml",
+    "requires_dms": ">=1.6.2",
+    "requires": ["nanovpn"],
+    "permissions": [
+        "settings_read",
+        "settings_write"
+    ]
+}

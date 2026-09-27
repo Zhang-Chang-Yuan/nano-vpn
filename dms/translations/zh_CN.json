@@ -1,0 +1,152 @@
+{
+    "3 seconds": {
+        "3 seconds": "3 秒"
+    },
+    "5 seconds": {
+        "5 seconds": "5 秒"
+    },
+    "10 seconds": {
+        "10 seconds": "10 秒"
+    },
+    "Account: %1": {
+        "Account: %1": "账号：%1"
+    },
+    "Cannot run %1, please run nanovpn install first": {
+        "Cannot run %1, please run nanovpn install first": "无法运行 %1，请先运行 nanovpn install"
+    },
+    "Check In": {
+        "Check In": "签到"
+    },
+    "Check-in": {
+        "Check-in": "签到"
+    },
+    "Check-in days: %1": {
+        "Check-in days: %1": "连续签到：%1 天"
+    },
+    "Check-in failed": {
+        "Check-in failed": "签到失败"
+    },
+    "Checked in": {
+        "Checked in": "签到成功"
+    },
+    "Configure how the Nano VPN bar widget behaves.": {
+        "Configure how the Nano VPN bar widget behaves.": "配置 Nano VPN 状态栏控件的行为。"
+    },
+    "Connect": {
+        "Connect": "连接"
+    },
+    "Connect failed. TUN mode may need authorization: run nanovpn tun-setup": {
+        "Connect failed. TUN mode may need authorization: run nanovpn tun-setup": "连接失败，TUN 模式可能需要授权：请运行 nanovpn tun-setup"
+    },
+    "Connected": {
+        "Connected": "已连接"
+    },
+    "Connected: %1": {
+        "Connected: %1": "已连接：%1"
+    },
+    "Connected: %1 · Exit IP: %2": {
+        "Connected: %1 · Exit IP: %2": "已连接：%1 · 出口 IP：%2"
+    },
+    "Connecting...": {
+        "Connecting...": "连接中..."
+    },
+    "Connecting: %1": {
+        "Connecting: %1": "正在连接：%1"
+    },
+    "Disconnect": {
+        "Disconnect": "断开"
+    },
+    "Disconnected": {
+        "Disconnected": "已断开"
+    },
+    "Error: %1": {
+        "Error: %1": "错误：%1"
+    },
+    "Expires: %1": {
+        "Expires: %1": "到期：%1"
+    },
+    "Failed to run: %1": {
+        "Failed to run: %1": "执行失败：%1"
+    },
+    "How often the widget refreshes the VPN status": {
+        "How often the widget refreshes the VPN status": "控件刷新 VPN 状态的频率"
+    },
+    "Latency test finished": {
+        "Latency test finished": "延迟测试完成"
+    },
+    "Login": {
+        "Login": "登录"
+    },
+    "Mode": {
+        "Mode": "模式"
+    },
+    "Mode switched to %1": {
+        "Mode switched to %1": "已切换模式：%1"
+    },
+    "Nano VPN": {
+        "Nano VPN": "Nano VPN"
+    },
+    "Nano VPN Settings": {
+        "Nano VPN Settings": "Nano VPN 设置"
+    },
+    "nanovpn Command": {
+        "nanovpn Command": "nanovpn 命令"
+    },
+    "nanovpn command not found": {
+        "nanovpn command not found": "未找到 nanovpn 命令"
+    },
+    "Node list refreshed": {
+        "Node list refreshed": "节点列表已刷新"
+    },
+    "Nodes": {
+        "Nodes": "节点"
+    },
+    "Not connected": {
+        "Not connected": "未连接"
+    },
+    "Path or name of the nanovpn CLI used by the widget": {
+        "Path or name of the nanovpn CLI used by the widget": "控件使用的 nanovpn CLI 路径或名称"
+    },
+    "Please run nanovpn login in a terminal to sign in": {
+        "Please run nanovpn login in a terminal to sign in": "请在终端运行 nanovpn login 登录"
+    },
+    "Refresh Nodes": {
+        "Refresh Nodes": "刷新节点"
+    },
+    "Show Node Label": {
+        "Show Node Label": "显示节点名称"
+    },
+    "Show the connected node name next to the icon in the bar": {
+        "Show the connected node name next to the icon in the bar": "在状态栏图标旁显示已连接节点的简称"
+    },
+    "Status Poll Interval": {
+        "Status Poll Interval": "状态轮询间隔"
+    },
+    "Test Latency": {
+        "Test Latency": "测试延迟"
+    },
+    "Testing node latency...": {
+        "Testing node latency...": "正在测试节点延迟..."
+    },
+    "Traffic: %1 / %2": {
+        "Traffic: %1 / %2": "流量：%1 / %2"
+    },
+    "TUN Mode": {
+        "TUN Mode": "TUN 模式"
+    },
+    "TUN mode disabled": {
+        "TUN mode disabled": "已关闭 TUN 模式"
+    },
+    "TUN mode enabled": {
+        "TUN mode enabled": "已开启 TUN 模式"
+    },
+    "TUN mode needs authorization, please run nanovpn tun-setup": {
+        "TUN mode needs authorization, please run nanovpn tun-setup": "TUN 模式需要授权，请运行 nanovpn tun-setup"
+    },
+    "unknown error": {
+        "unknown error": "未知错误"
+    },
+    "♻️ Auto Select": {
+        "♻️ Auto Select": "♻️ 自动选择"
+    }
+}
