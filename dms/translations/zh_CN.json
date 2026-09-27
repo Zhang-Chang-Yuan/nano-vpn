@@ -80,8 +80,8 @@
     "Logged in": {
         "Logged in": "登录成功"
     },
-    "Logged out": {
-        "Logged out": "已退出登录"
+    "Logged out and disconnected": {
+        "Logged out and disconnected": "已退出登录并断开连接"
     },
     "Login": {
         "Login": "登录"

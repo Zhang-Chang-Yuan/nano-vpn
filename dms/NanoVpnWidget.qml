@@ -37,6 +37,8 @@ PluginComponent {
     property var panelInfo: ({})
     // 账号登录态（panel --json 的 logged_in）：驱动"登录/登出"按钮标签与账号信息区显隐
     readonly property bool loggedIn: panelInfo.logged_in === true
+    // 登录表单展开态：默认收起（未登录也不显示输入框），只有点"登录"按钮才展开
+    property bool loginFormOpen: false
 
     readonly property bool busy: vpnState === "starting"
 
@@ -305,16 +307,23 @@ PluginComponent {
         });
     }
 
-    // 登出：删凭据与 auth；随后刷新 panel/status/nodes，按钮标签回到"登录"、登录表单重新显示
+    // 登出完整链路：先 nanovpn disconnect 停内核（失败不阻断登出，删凭据不需要内核），
+    // 再 nanovpn logout 删凭据与 auth，最后刷新 panel/status/nodes：
+    // 按钮标签回到"登录"、登录表单收起、账号信息区消失
     function doLogout() {
-        runCli(["logout"], 20000, (out, code) => {
-            if (code === 0)
-                ToastService.showInfo(I18n.trFor("nanoVpn", "Nano VPN"), I18n.trFor("nanoVpn", "Logged out"));
-            else
-                notifyFailure(["logout"]);
-            fetchPanel();
-            fetchStatus();
-            fetchNodes();
+        loginFormOpen = false;
+        runCli(["disconnect"], 30000, () => {
+            runCli(["logout"], 20000, (out, code) => {
+                if (code === 0)
+                    ToastService.showInfo(I18n.trFor("nanoVpn", "Nano VPN"), I18n.trFor("nanoVpn", "Logged out and disconnected"));
+                else if (code === 127)
+                    notifyCmdMissing();
+                else
+                    notifyFailure(["logout"]);
+                fetchPanel();
+                fetchStatus();
+                fetchNodes();
+            });
         });
     }
 
@@ -614,14 +623,18 @@ PluginComponent {
                     }
                 }
 
-                Flow {
+                // 四个功能按钮严格平行（同一行、等高、均宽）：4*w + 3*spacing == parent.width，
+                // 用 Row + 显式宽度避免 Flow 在 420px 弹层里把第 4 个按钮挤到第二行
+                Row {
                     width: parent.width
                     spacing: Theme.spacingS
 
                     DankButton {
+                        width: (parent.width - 3 * Theme.spacingS) / 4
                         text: I18n.trFor("nanoVpn", "Refresh Nodes")
                         iconName: "refresh"
                         buttonHeight: 32
+                        horizontalPadding: Theme.spacingS
                         backgroundColor: Theme.surfaceContainerHigh
                         textColor: Theme.surfaceText
                         onClicked: {
@@ -631,18 +644,22 @@ PluginComponent {
                     }
 
                     DankButton {
+                        width: (parent.width - 3 * Theme.spacingS) / 4
                         text: I18n.trFor("nanoVpn", "Test Latency")
                         iconName: "network_check"
                         buttonHeight: 32
+                        horizontalPadding: Theme.spacingS
                         backgroundColor: Theme.surfaceContainerHigh
                         textColor: Theme.surfaceText
                         onClicked: root.testLatency()
                     }
 
                     DankButton {
+                        width: (parent.width - 3 * Theme.spacingS) / 4
                         text: I18n.trFor("nanoVpn", "Check In")
                         iconName: "check"
                         buttonHeight: 32
+                        horizontalPadding: Theme.spacingS
                         backgroundColor: Theme.surfaceContainerHigh
                         textColor: Theme.surfaceText
                         onClicked: root.doCheckin()
@@ -650,20 +667,31 @@ PluginComponent {
 
                     // 登录/登出：与 刷新节点/测试延迟/签到 平行；按登录态切换标签，不显示账号
                     DankButton {
+                        width: (parent.width - 3 * Theme.spacingS) / 4
                         text: root.loggedIn ? I18n.trFor("nanoVpn", "Logout") : I18n.trFor("nanoVpn", "Login")
                         iconName: root.loggedIn ? "logout" : "login"
                         buttonHeight: 32
+                        horizontalPadding: Theme.spacingS
                         backgroundColor: Theme.surfaceContainerHigh
                         textColor: Theme.surfaceText
-                        onClicked: root.loggedIn ? root.doLogout() : emailField.forceActiveFocus()
+                        onClicked: {
+                            if (root.loggedIn) {
+                                root.doLogout();
+                                return;
+                            }
+                            // 未登录：切换登录表单展开态；展开时聚焦邮箱输入框
+                            root.loginFormOpen = !root.loginFormOpen;
+                            if (root.loginFormOpen)
+                                emailField.forceActiveFocus();
+                        }
                     }
                 }
 
-                // 登录表单：未登录时显示；凭据交给 CLI 落盘 0600，插件不自行存储
+                // 登录表单：未登录且点过"登录"按钮才显示；凭据交给 CLI 落盘 0600，插件不自行存储
                 Column {
                     width: parent.width
                     spacing: Theme.spacingS
-                    visible: !root.loggedIn
+                    visible: !root.loggedIn && root.loginFormOpen
 
                     DankTextField {
                         id: emailField
@@ -701,8 +729,10 @@ PluginComponent {
                             root.runCli(["login", email, pwd], 30000, (out, code) => {
                                 if (code === 0) {
                                     emailField.text = "";
+                                    root.loginFormOpen = false;
                                     ToastService.showInfo(I18n.trFor("nanoVpn", "Nano VPN"), I18n.trFor("nanoVpn", "Logged in"));
                                 } else {
+                                    // 失败：表单保持展开、邮箱保留、密码已清空，只报错
                                     ToastService.showError(I18n.trFor("nanoVpn", "Nano VPN"), out.trim() || I18n.trFor("nanoVpn", "Login failed"));
                                 }
                                 root.fetchPanel();

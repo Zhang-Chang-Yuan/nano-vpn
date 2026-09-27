@@ -241,11 +241,19 @@ nanovpn uninstall                     # 反向
   - 模式切换（三个 chip：智能首选/全球直连/全局代理）
   - TUN 开关（DankToggle；开时若未授权，toast 提示运行 `nanovpn tun-setup`）
   - 节点列表（可滚动，显示 tag/类型/延迟，按延迟从低到高排序，点击 `nanovpn connect <tag>`；置顶"自动选择"）
-  - 底部按钮行：刷新节点 / 测试延迟 / 签到 / 登录·登出（四者平行；标签按 `panel --json` 的
-    `logged_in` 切换：未登录显示"登录"并聚焦弹层内登录表单，已登录显示"登出"并执行
-    `nanovpn logout`；按钮本身不显示账号）
-  - 登录表单（仅未登录时显示）：邮箱 + 密码（DankTextField，密码掩码可切换），提交走
-    `nanovpn login <email> <password>`，凭据由 CLI 落盘 0600，插件不存储
+  - 底部按钮行：刷新节点 / 测试延迟 / 签到 / 登录·登出（四者平行：`Row` + 显式宽度
+    `(parent.width - 3 * Theme.spacingS) / 4`、`spacing: Theme.spacingS`、`buttonHeight: 32`、
+    `horizontalPadding: Theme.spacingS`，保证 4w + 3*spacing == parent.width 单行不换行；
+    标签按 `panel --json` 的 `logged_in` 切换：未登录显示"登录"并展开弹层内登录表单，
+    已登录显示"登出"并执行登出链路；按钮本身不显示账号）
+  - 登录表单（仅未登录且点过"登录"按钮时显示，`visible: !root.loggedIn && root.loginFormOpen`，
+    `loginFormOpen` 默认 `false`）：邮箱 + 密码（DankTextField，密码掩码可切换），提交按钮
+    `enabled: emailField.text.trim().length > 0 && passwordField.text.length > 0`（置灰即
+    opacity 0.4），提交走 `nanovpn login <email> <password>`，凭据由 CLI 落盘 0600，插件不存储；
+    登录成功 `loginFormOpen = false` 收起表单，失败保持展开、邮箱保留、密码清空
+  - 登出链路 `doLogout()`：先 `nanovpn disconnect` 停内核（断开失败不阻断，删凭据不需要内核），
+    再 `nanovpn logout` 删凭据与 auth，toast "Logged out and disconnected"（已退出登录并断开连接），
+    最后 `fetchPanel()/fetchStatus()/fetchNodes()`：按钮标签回"登录"、表单收起、账号信息区消失
   - 账号信息（仅已登录时显示，顺序固定）：账号 → 流量（`used/total` 文本 + `used_ratio`
     进度条）→ 到期时间 + 连续签到天数（来自 `nanovpn panel --json`）
   - 弹层 `showCloseButton: false`：不显示右上角 ❌，点击弹层外任意处即关闭
