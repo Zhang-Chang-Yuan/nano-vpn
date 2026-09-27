@@ -31,6 +31,18 @@ nanovpn login       # 交互式输入邮箱密码
 nanovpn connect     # 连接（默认智能首选 + 设置里的节点）
 ```
 
+想装到 `/opt`（和其他软件放一起）：
+
+```bash
+sudo git clone <repo-url> /opt/nano-vpn
+sudo chown -R $USER:$USER /opt/nano-vpn   # 之后 git pull 免 sudo
+cd /opt/nano-vpn && ./install.sh
+# 升级：cd /opt/nano-vpn && git pull && ./install.sh
+```
+
+> ⚠️ `tools/sing-box` 上的 TUN capability 挂在文件 inode 上：**拷贝**部署会丢权限，
+> 需重跑 `nanovpn tun-setup`；同分区 `mv` / `git clone` 不受影响。
+
 `install.sh` 做的事：检查依赖（curl/jq/python3）→ 下载 sing-box v1.14.2 到
 `tools/sing-box` → 链接 `~/.local/bin/nanovpn` → 拷贝 `dms/` 到
 `~/.config/DankMaterialShell/plugins/NanoVpn/` → `dms ipc` 重载并启用插件 →
