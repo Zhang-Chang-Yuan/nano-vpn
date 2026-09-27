@@ -236,7 +236,22 @@ nanovpn uninstall                     # 反向
   连接时 `Theme.primary`、断开 `Theme.surfaceVariantText`、连接中呼吸动画、错误 `Theme.error`）
   + 可选节点简称文本；`verticalBarPill` 同样提供（竖排状态栏）。
 - 弹层 `popoutContent`（`PopoutComponent`）：
-  - 头部：状态（已连接 <tag> / 未连接）+ 出口 IP
+  - 标题行（自绘，替代内置 `headerText`）：内置标题是不可交互的 `StyledText`，且内置状态行
+    `popoutDetails` 排在内容 Column 之前（会把状态行顶到标题上方），故 `headerText` /
+    `detailsText` 均置为 `""`（`visible` 依赖文本长度 → 高度 0，不留空白、无重复状态行），
+    改在内容 Column 顶部自绘 `Item`（`id: titleRow`，`width: parent.width`、`height: 40`，
+    与内置标题栏等高）：
+    `StyledText` 文本 `I18n.trFor("nanoVpn", "Nano VPN")`、`Theme.fontSizeLarge + 4`、
+    `Font.Bold`、未悬停 `Theme.surfaceText` / 悬停 `Theme.primary` + `font.underline`；
+    `MouseArea`（`anchors.fill`、`hoverEnabled: true`、`cursorShape: Qt.PointingHandCursor`）
+    `onClicked: Qt.openUrlExternally(root.officialUrl)`，`officialUrl` 是 root 上的
+    `readonly property string`（`https://16.76.177.124/`，唯一出处）；点击只开浏览器，
+    不关闭弹层、不改变连接状态，与登录态无关
+  - 状态行（自绘，紧随 titleRow 正下方）：复刻内置 popoutDetails 样式（`leftPadding` /
+    `bottomPadding: Theme.spacingS`、`font.pixelSize: Theme.fontSizeMedium`、
+    `color: Theme.surfaceVariantText`、`wrapMode: Text.WordWrap`），
+    `text: root.statusLine`（已连接 <tag> · 出口 IP / 未连接 / 连接中 / 错误原因），
+    与内容 Column 其余项之间有 spacingM 间距（可接受，不加负间距 hack）
   - 大连接/断开按钮（DankButton 或自绘 StyledRect+MouseArea）
   - 模式切换（三个 chip：智能首选/全球直连/全局代理）
   - TUN 开关（DankToggle；开时若未授权，toast 提示运行 `nanovpn tun-setup`）
