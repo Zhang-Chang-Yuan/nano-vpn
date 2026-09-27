@@ -1,0 +1,23 @@
+# sing-box 内核二进制（由 install.sh 下载，不进仓库）
+tools/sing-box
+
+# 运行时目录（正常位于 HOME 下；防止误提交）
+.nanovpn/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# 备份 / 临时 / 日志
+*.bak
+*.tmp
+*.log
+
+# 编辑器与系统
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db

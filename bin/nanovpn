@@ -1,0 +1,346 @@
+#!/usr/bin/env bash
+# nanovpn —— 脚本化代理客户端 CLI（sing-box 内核 + V2Board 定制面板）
+# 用法见 nvp_usage；详细协议见 docs/SPEC.md
+set -euo pipefail
+
+NANOVPN_HOME="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+# shellcheck source=lib/common.sh
+source "$NANOVPN_HOME/lib/common.sh"
+# shellcheck source=lib/api.sh
+source "$NANOVPN_HOME/lib/api.sh"
+# shellcheck source=lib/config.sh
+source "$NANOVPN_HOME/lib/config.sh"
+# shellcheck source=lib/core.sh
+source "$NANOVPN_HOME/lib/core.sh"
+
+nvp_usage() {
+  cat <<'EOF'
+用法：nanovpn <命令> [参数]
+
+  login [email] [password]    登录（缺省交互式读入）；凭据保存到 ~/.config/nanovpn/credentials (0600)
+  logout                      退出登录（删除凭据与 auth）
+  checkin                     签到；已签到则提示"今天已经签到过了"
+  panel [--json]              账号信息：套餐/流量/到期/签到状态
+  nodes [--json] [--test]     节点列表；--test 测延迟（内核在跑走 Clash API，否则自动拉起；--no-core 退回 TCP 近似值）
+  connect [node] [--tun|--no-tun]  选节点并启动内核（缺省用设置里的 node 或第一个节点）
+  disconnect                  停止内核
+  toggle                      连/断切换
+  status [--json]             状态
+  mode <智能首选|全球直连|全局代理>  切换分流模式并记忆
+  tun-setup                   pkexec setcap 授权 TUN 所需 capability
+  install                     下载 sing-box 内核、链接命令、安装 DMS 插件
+  uninstall                   反向
+EOF
+}
+
+# ---------------------------------------------------------------- 账号
+
+cmd_login() {
+  local email="${1:-}" password="${2:-}"
+  if [[ -z "$email" ]]; then
+    read -r -p "邮箱: " email
+  fi
+  if [[ -z "$password" ]]; then
+    read -r -s -p "密码: " password
+    printf '\n' >&2
+  fi
+  [[ -n "$email" && -n "$password" ]] || nvp_die "邮箱和密码不能为空"
+  nvp_ensure_dirs
+  # credentials 必须 0600
+  { printf 'email=%s\n' "$email"; printf 'password=%s\n' "$password"; } > "$NANOVPN_CREDENTIALS"
+  chmod 600 "$NANOVPN_CREDENTIALS"
+  nvp_do_login "$email" "$password" || exit 1
+  nvp_log_info "登录成功：$email"
+}
+
+cmd_logout() {
+  rm -f "$NANOVPN_CREDENTIALS" "$NANOVPN_AUTH"
+  nvp_log_info "已退出登录"
+}
+
+cmd_checkin() {
+  nvp_ensure_dirs
+  nvp_require_auth
+  # 只接受 POST；已签到是 HTTP 400 + status fail（不要当错误）
+  local raw code resp status msg
+  raw="$(nvp_api_call POST user/checkin '{}' 1)"
+  code="${raw%%$'\n'*}"
+  resp="${raw#*$'\n'}"
+  status="$(printf '%s' "$resp" | jq -r '.status // empty' 2>/dev/null || true)"
+  msg="$(printf '%s' "$resp" | jq -r '.message // empty' 2>/dev/null || true)"
+  if [[ "$code" == 2* && "$status" == "success" ]]; then
+    nvp_log_info "签到成功：${msg:-获得流量奖励}"
+    return 0
+  fi
+  if [[ "$msg" == *"已经签到"* ]]; then
+    nvp_log_info "今天已经签到过了"
+    return 0
+  fi
+  nvp_log_error "签到失败 (HTTP ${code:-无响应})：${msg:-未知错误}"
+  return 1
+}
+
+# 账号信息 → panel.json
+nvp_panel_refresh() {
+  nvp_ensure_dirs
+  if [[ ! -s "$NANOVPN_AUTH" && ! -s "$NANOVPN_CREDENTIALS" ]]; then
+    jq -nc '{logged_in:false,email:"",plan:"",used_bytes:0,total_bytes:0,
+             used_ratio:0,expire_at:0,expired:false,can_checkin:false,
+             checkin_days:0,next_reward_traffic:""}' | tee "$NANOVPN_PANEL"
+    return 0
+  fi
+  nvp_require_auth
+  local info sub ck
+  info="$(nvp_api_json GET user/info)"
+  sub="$(nvp_api_json GET user/getSubscribe)"
+  ck="$(nvp_api_json GET user/checkinStatus)"
+  jq -n --argjson info "$info" --argjson sub "$sub" --argjson ck "$ck" '
+    {
+      logged_in: true,
+      email: ($sub.data.email // $info.data.email // ""),
+      plan: ($sub.data.plan.name // ""),
+      used_bytes: (($sub.data.u // 0) + ($sub.data.d // 0)),
+      total_bytes: ($sub.data.transfer_enable // 0),
+      used_ratio: (if (($sub.data.transfer_enable // 0) > 0)
+                   then (((($sub.data.u // 0) + ($sub.data.d // 0)) * 10000 / $sub.data.transfer_enable) | round) / 10000
+                   else 0 end),
+      expire_at: ($sub.data.expired_at // 0),
+      expired: (($sub.data.expired_at // 0) > 0 and ($sub.data.expired_at // 0) < now),
+      can_checkin: ($ck.data.can_checkin // false),
+      checkin_days: ($ck.data.checkin_days // 0),
+      next_reward_traffic: ($ck.data.next_reward_traffic // "")
+    }' | tee "$NANOVPN_PANEL"
+}
+
+nvp_panel_human() {
+  local j="$1"
+  printf '账号：%s\n' "$(jq -r '.email' <<<"$j")"
+  printf '套餐：%s\n' "$(jq -r '.plan // "（无）"' <<<"$j")"
+  printf '流量：%s / %s（已用 %s%%）\n' \
+    "$(nvp_fmt_bytes "$(jq -r '.used_bytes' <<<"$j")")" \
+    "$(nvp_fmt_bytes "$(jq -r '.total_bytes' <<<"$j")")" \
+    "$(jq -r '(.used_ratio * 1000 | round) / 10' <<<"$j")"
+  local expire_at expired
+  expire_at="$(jq -r '.expire_at' <<<"$j")"
+  expired="$(jq -r '.expired' <<<"$j")"
+  if [[ "$expired" == "true" ]]; then
+    printf '到期：%s（已到期）\n' "$(nvp_fmt_date "$expire_at")"
+  else
+    local days=""
+    [[ "$expire_at" =~ ^[0-9]+$ ]] && (( expire_at > 0 )) && \
+      days="（剩 $(( (expire_at - $(date +%s)) / 86400 )) 天）"
+    printf '到期：%s%s\n' "$(nvp_fmt_date "$expire_at")" "$days"
+  fi
+  if [[ "$(jq -r '.can_checkin' <<<"$j")" == "true" ]]; then
+    printf '签到：可签到（连续 %s 天，下次奖励 %s）\n' \
+      "$(jq -r '.checkin_days' <<<"$j")" \
+      "$(jq -r '.next_reward_traffic // "未知"' <<<"$j")"
+  else
+    printf '签到：今天已签到（连续 %s 天）\n' "$(jq -r '.checkin_days' <<<"$j")"
+  fi
+}
+
+# ---------------------------------------------------------------- 节点
+
+cmd_nodes() {
+  local as_json=0 do_test=0 no_core=0
+  while (( $# )); do
+    case "$1" in
+      --json)    as_json=1 ;;
+      --test)    do_test=1 ;;
+      --no-core) no_core=1 ;;
+      *) nvp_die "未知参数：$1" ;;
+    esac
+    shift
+  done
+  nvp_ensure_dirs
+  nvp_require_auth
+  nvp_nodes_refresh
+  if (( do_test )); then
+    if (( no_core )); then
+      nvp_nodes_test_tcp
+    else
+      nvp_nodes_test_clash
+    fi
+  fi
+  if (( as_json )); then
+    cat "$NANOVPN_NODES"
+    return 0
+  fi
+  local n sel mode
+  n="$(jq '.nodes | length' "$NANOVPN_NODES")"
+  sel="$(jq -r '.selected // ""' "$NANOVPN_NODES")"
+  mode="$(jq -r '.mode // ""' "$NANOVPN_NODES")"
+  printf '节点 %d 个（当前：%s，模式：%s）：\n' "$n" "${sel:-未选择}" "$mode"
+  jq -r '.nodes[] | "  \(.tag)  [\(.type)]  \(.server):\(.port)  延迟:\(if .latency_ms == null then "—" else "\(.latency_ms)ms" end)"' \
+    "$NANOVPN_NODES"
+}
+
+# ---------------------------------------------------------------- 连接
+
+cmd_connect() {
+  local node="" tun_flag=""
+  while (( $# )); do
+    case "$1" in
+      --tun)    tun_flag=1 ;;
+      --no-tun) tun_flag=0 ;;
+      --*) nvp_die "未知参数：$1" ;;
+      *) node="$1" ;;
+    esac
+    shift
+  done
+  [[ -n "$tun_flag" ]] && nvp_settings_set tun "$tun_flag"
+  nvp_ensure_dirs
+  nvp_require_auth
+  nvp_nodes_refresh
+  if [[ -z "$node" ]]; then
+    node="$(nvp_settings_get node)"
+  fi
+  if [[ -z "$node" ]]; then
+    node="$(jq -r '.nodes[0].tag // empty' "$NANOVPN_NODES")"
+    [[ -n "$node" ]] || nvp_die "订阅里没有可用节点"
+  fi
+  nvp_validate_node "$node"
+  nvp_settings_set node "$node"
+  rm -f "$NANOVPN_LAST_ERROR"
+  nvp_core_start "$node" || exit 1
+  local ip
+  ip="$(nvp_current_ip || true)"
+  nvp_log_info "已连接：$node（出口 IP ${ip:-未知}）"
+}
+
+cmd_disconnect() {
+  nvp_core_stop || true
+  rm -f "$NANOVPN_LAST_ERROR"
+  nvp_log_info "已断开"
+}
+
+cmd_toggle() {
+  local state
+  state="$(nvp_core_state)"
+  if [[ "$state" == "connected" || "$state" == "starting" ]]; then
+    cmd_disconnect
+  else
+    cmd_connect
+  fi
+}
+
+cmd_status() {
+  local as_json=0
+  [[ "${1:-}" == "--json" ]] && as_json=1
+  nvp_write_status
+  if (( as_json )); then
+    printf '%s\n' "$NVP_STATUS_JSON"
+  else
+    nvp_status_human "$NVP_STATUS_JSON"
+  fi
+}
+
+# ---------------------------------------------------------------- TUN 授权
+
+cmd_tun_setup() {
+  local sb
+  sb="$(readlink -f "$NANOVPN_SING_BOX")"
+  [[ -x "$sb" ]] || nvp_die "未找到可执行的 sing-box：$sb（先运行 nanovpn install）"
+  # 已有能力就跳过（避免重复弹密码框）。
+  # getcap 常在 /usr/sbin、/sbin，普通用户 PATH 里不一定有，逐个找绝对路径
+  local getcap_bin="" c
+  for c in "$(command -v getcap 2>/dev/null || true)" /usr/sbin/getcap /sbin/getcap /usr/bin/getcap /usr/local/sbin/getcap; do
+    [[ -n "$c" && -x "$c" ]] && { getcap_bin="$c"; break; }
+  done
+  if [[ -n "$getcap_bin" ]] && "$getcap_bin" "$sb" 2>/dev/null | grep -q cap_net_admin; then
+    nvp_log_info "sing-box 已具备 cap_net_admin,cap_net_raw 能力：$sb"
+    return 0
+  fi
+  # pkexec 会弹 polkit 图形密码框（DMS 自带 polkit agent）
+  if command -v pkexec >/dev/null 2>&1; then
+    if pkexec setcap cap_net_admin,cap_net_raw+eip "$sb"; then
+      nvp_log_info "授权完成：$sb"
+      return 0
+    fi
+  fi
+  nvp_die "自动授权失败，请手动执行：sudo setcap cap_net_admin,cap_net_raw+eip $sb"
+}
+
+# ---------------------------------------------------------------- 安装/卸载
+
+# install/uninstall 的完整逻辑（依赖检查、下载内核、DMS 插件、状态栏组件）
+# 由仓库根目录的 install.sh / uninstall.sh 负责，这里直接委托，避免两套实现漂移
+cmd_install() {
+  local script="$NANOVPN_HOME/install.sh"
+  [[ -f "$script" ]] || nvp_die "未找到安装脚本：$script"
+  nvp_ensure_dirs
+  exec bash "$script" "$@"
+}
+
+# 轻量卸载：停内核、摘状态栏组件、删插件与命令链接。
+# 保留 ~/.config/nanovpn 与 ~/.local/state/nanovpn（含登录凭据）；
+# 需要连用户数据一起删掉时运行仓库根目录的 uninstall.sh
+cmd_uninstall() {
+  nvp_core_stop || true
+  local bindir="${XDG_BIN_HOME:-$HOME/.local/bin}"
+  rm -f "$bindir/nanovpn"
+  local plugin_dst="${XDG_CONFIG_HOME:-$HOME/.config}/DankMaterialShell/plugins/NanoVpn"
+  rm -rf "$plugin_dst"
+  # 从 DMS 状态栏移除 nanoVpn 组件（barConfigs[*].rightWidgets，原子写）
+  local dms_settings="${XDG_CONFIG_HOME:-$HOME/.config}/DankMaterialShell/settings.json"
+  if [[ -f "$dms_settings" ]]; then
+    python3 - "$dms_settings" <<'PY' && nvp_log_info "已从 DMS 状态栏移除 nanoVpn 组件" || nvp_log_warn "未能自动改写 $dms_settings，请在 设置 → 状态栏 手动移除"
+import json, os, sys
+path = sys.argv[1]
+try:
+    with open(path, encoding="utf-8") as f:
+        data = json.load(f)
+except Exception:
+    sys.exit(1)
+changed = False
+for bar in data.get("barConfigs") or []:
+    if not isinstance(bar, dict):
+        continue
+    ws = bar.get("rightWidgets")
+    if isinstance(ws, list) and "nanoVpn" in ws:
+        bar["rightWidgets"] = [w for w in ws if w != "nanoVpn"]
+        changed = True
+if not changed:
+    sys.exit(0)
+tmp = path + ".tmp"
+with open(tmp, "w", encoding="utf-8") as f:
+    json.dump(data, f, ensure_ascii=False, indent=2)
+os.replace(tmp, path)
+PY
+  fi
+  nvp_log_info "已卸载命令链接与 DMS 插件（用户数据保留在 ~/.config/nanovpn、~/.local/state/nanovpn；彻底卸载请运行仓库根目录 uninstall.sh）"
+}
+
+# ---------------------------------------------------------------- 分发
+
+main() {
+  local cmd="${1:-}"
+  shift || true
+  case "$cmd" in
+    login)     cmd_login "$@" ;;
+    logout)    cmd_logout "$@" ;;
+    checkin)   cmd_checkin "$@" ;;
+    panel)
+      if [[ "${1:-}" == "--json" ]]; then
+        nvp_panel_refresh
+      else
+        nvp_panel_refresh >/dev/null
+        nvp_panel_human "$(cat "$NANOVPN_PANEL")"
+      fi
+      ;;
+    nodes)     cmd_nodes "$@" ;;
+    connect)   cmd_connect "$@" ;;
+    disconnect) cmd_disconnect "$@" ;;
+    toggle)    cmd_toggle "$@" ;;
+    status)    cmd_status "$@" ;;
+    mode)      nvp_mode_set "${1:-}" ;;
+    tun-setup) cmd_tun_setup "$@" ;;
+    install)   cmd_install "$@" ;;
+    uninstall) cmd_uninstall "$@" ;;
+    ""|-h|--help|help) nvp_usage ;;
+    *) nvp_die "未知命令：$cmd（--help 看用法）" ;;
+  esac
+}
+
+main "$@"
