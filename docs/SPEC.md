@@ -240,9 +240,15 @@ nanovpn uninstall                     # 反向
   - 大连接/断开按钮（DankButton 或自绘 StyledRect+MouseArea）
   - 模式切换（三个 chip：智能首选/全球直连/全局代理）
   - TUN 开关（DankToggle；开时若未授权，toast 提示运行 `nanovpn tun-setup`）
-  - 节点列表（可滚动，显示 tag/类型/延迟，点击 `nanovpn connect <tag>`；置顶"自动选择"）
-  - 底部：刷新节点 / 签到 / 测试延迟 / 登录 按钮
-  - 账号信息行：流量 used/total、到期时间、连续签到天数（来自 `nanovpn panel --json`）
+  - 节点列表（可滚动，显示 tag/类型/延迟，按延迟从低到高排序，点击 `nanovpn connect <tag>`；置顶"自动选择"）
+  - 底部按钮行：刷新节点 / 测试延迟 / 签到 / 登录·登出（四者平行；标签按 `panel --json` 的
+    `logged_in` 切换：未登录显示"登录"并聚焦弹层内登录表单，已登录显示"登出"并执行
+    `nanovpn logout`；按钮本身不显示账号）
+  - 登录表单（仅未登录时显示）：邮箱 + 密码（DankTextField，密码掩码可切换），提交走
+    `nanovpn login <email> <password>`，凭据由 CLI 落盘 0600，插件不存储
+  - 账号信息（仅已登录时显示，顺序固定）：账号 → 流量（`used/total` 文本 + `used_ratio`
+    进度条）→ 到期时间 + 连续签到天数（来自 `nanovpn panel --json`）
+  - 弹层 `showCloseButton: false`：不显示右上角 ❌，点击弹层外任意处即关闭
 - 数据获取：`Proc.runCommand(id, ["nanovpn", ...], cb)`；status 3s 轮询，panel/nodes 在弹层打开时拉。
   命令找不到时 toast 提示运行 `nanovpn install`。
 - 操作反馈：`ToastService.showInfo/showError/showWarning(title, msg)`。
