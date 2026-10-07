@@ -77,23 +77,22 @@ password=********
 - ✅ 登录载荷走 HTTPS；脚本与文档中**不存在**任何写死的账号、密码或 sudo 密码。
 - ✅ 注销手段：`nanovpn logout` 删 credentials 与 auth；删配置/状态/缓存目录见下节。
 
-## 卸载后的残留
+## 卸载
 
-**系统侧**：`sudo uninstall.sh` 只删除 `/opt/nano-vpn`（含内核与其 capability）与
-`/usr/local/bin/nanovpn`（**只删软链接**，普通文件不动），不碰任何用户目录。
-
-- `--keep-app`：保留 `/opt/nano-vpn`，只删命令链接。
-
-**用户侧**（各用户自己执行，root 不代删）：
+用户级先清、系统级后清（插件是指向 `/opt` 的软链接，必须在删 `/opt` 之前处理）：
 
 ```bash
-nanovpn uninstall-dms        # 删插件软链接 + settings.json 里的 nanoVpn 组件
-rm -rf ~/.config/nanovpn ~/.local/state/nanovpn ~/.cache/nanovpn   # 配置/状态/缓存
+nanovpn disconnect        # 1. 停内核（没连接可跳过）
+nanovpn uninstall-dms     # 2. 删插件软链接 + settings.json 里的 nanoVpn 组件
+rm -rf ~/.config/nanovpn ~/.local/state/nanovpn ~/.cache/nanovpn   # 3. 配置/状态/缓存（想留登录态可跳过）
+sudo ./uninstall.sh       # 4. 删 /opt/nano-vpn 与 /usr/local/bin/nanovpn
 ```
 
-- `nanovpn uninstall-dms` 只删插件与状态栏组件，**保留登录态**；
-  它输出里会给出上面那条 `rm -rf`（含展开后的真实路径）。
-- 注意顺序：插件是软链接到 `/opt/nano-vpn/dms`，`sudo uninstall.sh` 之后链接会悬空，
-  所以要先跑 `nanovpn uninstall-dms`。
-- 保留物：`settings.json.bak`（DMS 配置备份，确认无恙后手动删除）。
-- 源码仓库不在卸载范围内（应用是从它安装出去的拷贝），确认不用后可自行 `rm -rf`。
+- 第 1 步不能省：卸载器虽然会在删 `/opt` 前主动停掉仍在运行的 `tools/sing-box`
+  （否则进程会继续持有 TUN 与 capability 变成幽灵进程），但先自己 `disconnect` 更干净。
+- 第 2 步只删插件与状态栏组件，**保留登录态**；它输出里会给出上面那条 `rm -rf`（含展开后的真实路径）。
+- 第 3 步是唯一删凭据与登录态的地方，root 不会代你做。
+- 第 4 步只删系统侧，**不碰任何用户目录**；`--keep-app` 可只删命令链接、保留 `/opt/nano-vpn`。
+
+卸载后残留：源码仓库（应用是从它安装出去的拷贝）、`settings.json.bak`（DMS 配置备份，
+确认无恙后手动删）、以及第 3 步你选择保留的用户数据。

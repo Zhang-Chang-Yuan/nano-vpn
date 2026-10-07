@@ -78,6 +78,31 @@ if (( EUID != 0 )); then
     die "需要 root 才能卸载 $PREFIX。请运行：sudo $SCRIPT_PATH $*"
 fi
 
+# ---------------------------------------------------------------- 运行中的内核
+
+# 删除内核二进制前必须先停掉进程：否则它会继续活着、继续持有 cap_net_admin 与 TUN，
+# 而磁盘上的文件已经没了，用户很难再定位和收拾它。
+stop_running_kernel() {
+    local pat="$PREFIX/tools/sing-box" pids
+    pids="$(pgrep -f "$pat" 2>/dev/null || true)"
+    [[ -z "$pids" ]] && return 0
+    info "检测到仍在运行的内核（PID：$(printf '%s' "$pids" | tr '\n' ' ')），先停止 …"
+    # shellcheck disable=SC2086
+    kill $pids 2>/dev/null || true
+    local i
+    for i in 1 2 3 4 5 6; do
+        pgrep -f "$pat" >/dev/null 2>&1 || break
+        sleep 0.5
+    done
+    pids="$(pgrep -f "$pat" 2>/dev/null || true)"
+    if [[ -n "$pids" ]]; then
+        warn "进程未响应 TERM，强制结束"
+        # shellcheck disable=SC2086
+        kill -9 $pids 2>/dev/null || true
+    fi
+    ok "内核已停止"
+}
+
 # ---------------------------------------------------------------- 交互确认
 
 if (( ASSUME_YES == 0 )); then
@@ -93,6 +118,7 @@ EOF
         echo "  - 保留安装前缀 $PREFIX（--keep-app）"
     else
         echo "  - 删除安装前缀 $PREFIX（含 sing-box 内核与其 capability）"
+        echo "  - 若内核仍在运行，会先停止该进程"
     fi
     cat <<EOF
 ${C_BOLD}不会碰 \$HOME：${C_RESET}用户级内容请各自执行
@@ -108,6 +134,7 @@ fi
 if (( KEEP_APP )); then
     info "--keep-app：保留安装前缀 $PREFIX"
 elif [[ -d "$PREFIX" ]]; then
+    stop_running_kernel
     rm -rf "$PREFIX"
     ok "已删除安装前缀 $PREFIX（含内核与其 capability）"
 else

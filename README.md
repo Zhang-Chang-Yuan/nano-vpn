@@ -72,13 +72,21 @@ nanovpn install-dms # 可选：DMS 状态栏插件（用户级，不需要 root�
 升级：`git pull` 拉源码后重跑 `sudo ./install.sh`（幂等；用户配置、凭据与登录态保留，
 DMS 插件是软链接所以也自动是新版）。
 
-卸载：`sudo ./uninstall.sh`（交互确认，`-y` 跳过；只删 `/opt/nano-vpn` 与命令链接，
-**不动用户数据**）。用户侧内容各用户自己清：
+### 卸载
+
+**用户级先清、系统级后清**（插件是指向 `/opt` 的软链接，要赶在 `/opt` 被删之前）：
 
 ```bash
-nanovpn uninstall-dms                                    # 移除 DMS 插件与状态栏组件
-rm -rf ~/.config/nanovpn ~/.local/state/nanovpn ~/.cache/nanovpn   # 删配置/状态/缓存
+nanovpn disconnect          # 1. 停内核（没连接可跳过）
+nanovpn uninstall-dms       # 2. 移除 DMS 插件软链接与状态栏组件（用户级，不需要 root）
+rm -rf ~/.config/nanovpn ~/.local/state/nanovpn ~/.cache/nanovpn   # 3. 删配置/状态/缓存（想留登录态可跳过）
+cd <仓库> && sudo ./uninstall.sh   # 4. 删 /opt/nano-vpn 与 /usr/local/bin/nanovpn（交互确认，-y 跳过）
 ```
+
+- `sudo ./uninstall.sh` 只删系统侧，**不动任何用户数据**；若内核还在运行，它会**先停掉**
+  （否则二进制删了、进程还活着并继续持有 TUN/capability，变成不好收拾的幽灵进程）。
+- `--keep-app`：保留 `/opt/nano-vpn`，只删命令链接。
+- 卸完还留着：源码仓库、DMS 配置备份 `settings.json.bak`，以及第 3 步你选择保留的用户数据。
 
 ## DMS 状态栏
 
