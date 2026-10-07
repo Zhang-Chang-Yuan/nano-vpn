@@ -9,8 +9,11 @@
 | 目录 | 内容 | 权限 |
 |---|---|---|
 | `~/.config/nanovpn/` | 配置：`settings`（首次运行自动生成）、`credentials` | `700`，文件 `0600` |
-| `~/.local/state/nanovpn/` | 状态：`auth`、`subscription.json`、`nodes.json`、`runtime.json`、`panel.json`、`status.json`、`sing-box.pid`、`sing-box.log` | `700`，`auth` `0600` |
+| `~/.local/state/nanovpn/` | 状态：`auth`、`subscription.json`、`nodes.json`、`runtime.json`、`panel.json`、`status.json`、`sing-box.pid`、`sing-box.log` | `700`，文件默认 `0600` |
 | `~/.cache/nanovpn/` | 可再生缓存：sing-box 工作目录（`-D`，rule_set 的 srs 下载、fakeip/rdrc 缓存） | `700` |
+
+CLI 以 `umask 077` 运行，所以它新建的文件都是 `0600`（含 `runtime.json`、`subscription.json`
+这些带凭据/订阅 token 的文件）；遇到历史遗留的宽松权限，下次运行会自动收紧。
 
 **多用户**：三个目录都属于当前用户，每个用户第一次运行 `nanovpn` 时各自生成一份，
 互不可见、互不影响；root 只装 `/opt`，不会替任何用户建配置。

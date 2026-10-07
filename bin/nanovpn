@@ -2,6 +2,8 @@
 # nanovpn —— 脚本化代理客户端 CLI（sing-box 内核 + V2Board 定制面板）
 # 用法见 nvp_usage；详细协议见 docs/SPEC.md
 set -euo pipefail
+# 用户数据全部私有：默认 umask 让新建文件为 0600、目录为 0700
+umask 077
 
 NANOVPN_HOME="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
 # shellcheck source=lib/common.sh

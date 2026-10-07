@@ -62,6 +62,8 @@ nvp_die()       { nvp_log_error "$*"; exit 1; }
 nvp_ensure_dirs() {
   mkdir -p "$NANOVPN_CONFIG_DIR" "$NANOVPN_STATE_DIR" "$NANOVPN_CACHE_DIR"
   chmod 700 "$NANOVPN_CONFIG_DIR" "$NANOVPN_STATE_DIR" "$NANOVPN_CACHE_DIR" 2>/dev/null || true
+  # 老版本按 umask 写过 664 的状态文件（目录 700 已兜底），这里顺手收紧到 0600
+  chmod 600 "$NANOVPN_CONFIG_DIR"/* "$NANOVPN_STATE_DIR"/* 2>/dev/null || true
 }
 
 # 迁移：旧版安装器把命令软链接放在 ~/.local/bin/nanovpn。
