@@ -26,29 +26,59 @@
 ```bash
 git clone <repo-url> nano-vpn && cd nano-vpn
 
-./install.sh        # 装内核、链命令、拷 DMS 插件、加状态栏组件（幂等）
-nanovpn login       # 交互式输入邮箱密码
+sudo ./install.sh   # 系统侧安装：应用 → /opt/nano-vpn，命令 → /usr/local/bin/nanovpn，装内核 + TUN 授权
+nanovpn login       # 首次运行自动把「你的」配置初始化到自己的家目录（XDG 规范）
 nanovpn connect     # 连接（默认智能首选 + 设置里的节点）
+nanovpn install-dms # 可选：DMS 状态栏插件（用户级，不需要 root）
 ```
 
-想装到 `/opt`（和其他软件放一起）：
+### 安装布局
+
+**系统侧**（`sudo ./install.sh` 负责，安装器绝不写任何用户目录）：
+
+| 位置 | 内容 | 属主 / 权限 |
+|---|---|---|
+| `/opt/nano-vpn/` | 应用本体：`bin/`、`lib/`、`dms/`、`docs/`、`tools/sing-box`、`install.sh`、`uninstall.sh` | `root:root`（内核带 `cap_net_admin`，不可被普通用户改写） |
+| `/usr/local/bin/nanovpn` | 指向 `/opt/nano-vpn/bin/nanovpn` 的软链接（系统目录，已在 `PATH` 中） | `root:root` |
+
+**用户侧**（每个用户各自一份，`nanovpn` 首次运行时自动初始化，因此多用户互不影响）：
+
+| 位置 | 内容 | 属主 / 权限 |
+|---|---|---|
+| `~/.config/nanovpn/` | 用户配置：`settings`（首次运行自动生成，带注释）、`credentials` | 当前用户，目录 `700`，凭据 `0600` |
+| `~/.local/state/nanovpn/` | 用户状态：`auth`、订阅、节点、运行时配置、日志 | 当前用户，`700`，`auth` `0600` |
+| `~/.cache/nanovpn/` | 可再生缓存：sing-box 工作目录（rule_set 下载、fakeip/rdrc 缓存） | 当前用户，`700` |
+| `~/.config/DankMaterialShell/plugins/NanoVpn` | DMS 插件（`nanovpn install-dms` 建的**软链接** → `/opt/nano-vpn/dms`） | 当前用户 |
+
+- **安装器完全不碰 `$HOME`**：`sudo ./install.sh` 只写 `/opt` 与 `/usr/local/bin`，
+  所以装完机器上任何用户都能直接用；各自第一次运行 `nanovpn` 时才在自己的家目录
+  生成配置，天然一用户一份（`settings`、凭据、订阅、状态全隔离）。
+- 用户数据严格遵循 **XDG Base Directory** 规范：配置 `XDG_CONFIG_HOME`、状态 `XDG_STATE_HOME`、
+  可再生缓存 `XDG_CACHE_HOME`（未设时分别用 `~/.config` / `~/.local/state` / `~/.cache`）。
+- 用户目录里唯一的软链接是 **DMS 插件目录**（DMS 只从用户配置目录发现插件，插件源码留在
+  `/opt/nano-vpn/dms`，升级应用后插件自动跟着更新）。配置、状态、缓存都是真实文件，
+  不是指向别处的软链接。
+- 历史版本遗留的 `~/.local/bin/nanovpn` 软链接会在 `nanovpn` 首次运行时被清理
+  （只删指向本项目的软链接，普通文件不动）。
+
+`install.sh` 做的事：检查依赖（curl/jq/python3/tar）→ 应用文件安装到 `/opt/nano-vpn`
+→ 下载 sing-box v1.14.2 到 `/opt/nano-vpn/tools/sing-box` → `setcap` 授予 TUN 能力
+（失败只警告，仍可用 `nanovpn tun-setup` 兜底）→ 链接 `/usr/local/bin/nanovpn`。
+就这些，不涉及任何用户目录。
+
+> ⚠️ TUN capability 挂在文件 **inode** 上：`install.sh` 每次安装/升级后都会重新
+> `setcap`；手工拷贝内核二进制会丢能力，需重跑 `nanovpn tun-setup`。
+
+升级：`git pull` 拉源码后重跑 `sudo ./install.sh`（幂等；用户配置、凭据与登录态保留，
+DMS 插件是软链接所以也自动是新版）。
+
+卸载：`sudo ./uninstall.sh`（交互确认，`-y` 跳过；只删 `/opt/nano-vpn` 与命令链接，
+**不动用户数据**）。用户侧内容各用户自己清：
 
 ```bash
-sudo git clone <repo-url> /opt/nano-vpn
-sudo chown -R $USER:$USER /opt/nano-vpn   # 之后 git pull 免 sudo
-cd /opt/nano-vpn && ./install.sh
-# 升级：cd /opt/nano-vpn && git pull && ./install.sh
+nanovpn uninstall-dms                                    # 移除 DMS 插件与状态栏组件
+rm -rf ~/.config/nanovpn ~/.local/state/nanovpn ~/.cache/nanovpn   # 删配置/状态/缓存
 ```
-
-> ⚠️ `tools/sing-box` 上的 TUN capability 挂在文件 inode 上：**拷贝**部署会丢权限，
-> 需重跑 `nanovpn tun-setup`；同分区 `mv` / `git clone` 不受影响。
-
-`install.sh` 做的事：检查依赖（curl/jq/python3）→ 下载 sing-box v1.14.2 到
-`tools/sing-box` → 链接 `~/.local/bin/nanovpn` → 拷贝 `dms/` 到
-`~/.config/DankMaterialShell/plugins/NanoVpn/` → `dms ipc` 重载并启用插件 →
-把 `nanoVpn` 加进状态栏右侧组件 → 提示登录。
-
-卸载：`./uninstall.sh`（交互确认，`-y` 跳过）。
 
 ## DMS 状态栏
 
@@ -74,6 +104,7 @@ cd /opt/nano-vpn && ./install.sh
 - 数据经 `Proc.runCommand` 调 `nanovpn status --json` 等，status 3s 轮询；
   命令找不到时 toast 提示运行 `nanovpn install`。
 - 插件设置（设置 → Plugins → NanoVpn）：是否显示节点名、轮询间隔、`nanovpn` 路径。
+- 插件不在插件列表里？`nanovpn install-dms`（用户级，不需要 root）装一次即可。
 
 ## 命令
 
@@ -88,10 +119,15 @@ nanovpn disconnect                    # 停内核
 nanovpn toggle                        # 连/断切换
 nanovpn status [--json]               # 状态
 nanovpn mode <智能首选|全球直连|全局代理>  # Clash API 切换并记忆
-nanovpn tun-setup                     # pkexec setcap 授权
-nanovpn install                       # 下载内核到 tools/、装 DMS 插件、链接命令、加状态栏组件
-nanovpn uninstall                     # 反向
+nanovpn tun-setup                     # setcap 授权 TUN 能力（root 直接授权，否则 pkexec 弹窗）
+nanovpn install-dms                   # 安装/刷新 DMS 状态栏插件（用户级：软链接 + 加状态栏组件）
+nanovpn uninstall-dms                 # 移除 DMS 状态栏插件与状态栏组件（用户级）
+nanovpn install                       # 系统侧安装：调 /opt/nano-vpn/install.sh（需要 root 时用 sudo 重入）
+nanovpn uninstall                     # 系统侧卸载：调 /opt/nano-vpn/uninstall.sh（只删 /opt 与命令链接）
 ```
+
+`install` / `uninstall` 只动系统目录，不会碰你的家目录；用户侧的东西（配置、DMS 插件）
+由首次运行与 `install-dms` / `uninstall-dms` 负责。
 
 人类可读输出走 stdout，错误走 stderr；`--json` 输出机器可读 JSON（QML 用）。
 
@@ -112,30 +148,35 @@ nanovpn uninstall                     # 反向
 
 ```bash
 nanovpn tun-setup
-# = pkexec setcap cap_net_admin,cap_net_raw+eip <仓库>/tools/sing-box
-# （polkit 弹窗输密码，只授权二进制，不整体以 root 运行）
+# = setcap cap_net_admin,cap_net_raw+eip /opt/nano-vpn/tools/sing-box
+# 已经是 root 就直接授权；否则走 pkexec（polkit 弹窗输密码，只授权二进制，
+# 不整体以 root 运行内核）；pkexec 不可用时回退到 sudo setcap。
+# install.sh 以 root 运行时已经授权过一次，正常情况下这里会直接跳过。
 ```
 
 - 授权前会先 `getcap` 检查，已有能力则跳过；内核版本更新后需重新授权一次。
 - 撤销授权：
 
   ```bash
-  sudo setcap -r <仓库>/tools/sing-box
+  sudo setcap -r /opt/nano-vpn/tools/sing-box
   ```
 
 ## 配置与安全
 
-运行时数据全部在仓库之外：
+应用本体在 `/opt/nano-vpn`（root 所有），用户运行时数据全部在用户目录（XDG 规范），
+由 `nanovpn` 首次运行时自动初始化：
 
 ```
-~/.config/nanovpn/
+/opt/nano-vpn/        # 应用本体 + tools/sing-box（root:root，含 cap_net_admin）
+~/.config/nanovpn/    # XDG_CONFIG_HOME，首次运行自动生成
 ├── settings        # KEY=VALUE：panel_api_base / mixed_port=7891 / clash_port=9091
 │                   #   mode=智能首选 / tun=0|1 / node=<tag> / log_level=warn
 └── credentials     # email / password，明文，0600
-~/.local/state/nanovpn/
+~/.local/state/nanovpn/   # XDG_STATE_HOME
 ├── auth            # 面板 JWT，0600
 ├── subscription.json / nodes.json / runtime.json / panel.json / status.json
-├── sing-box.pid / sing-box.log / cache/
+├── sing-box.pid / sing-box.log
+~/.cache/nanovpn/          # XDG_CACHE_HOME：sing-box 工作目录（rule_set 下载 / fakeip 缓存）
 ```
 
 **威胁模型（请如实理解边界）：**
@@ -152,7 +193,7 @@ nanovpn tun-setup
 ## 项目结构
 
 ```
-nano-vpn/
+nano-vpn/                  # 源码仓库（可放在任意位置，例如 ~/Workspace/nano-vpn）
 ├── bin/nanovpn            # CLI 入口（bash）
 ├── lib/
 │   ├── common.sh          # 路径常量、日志、settings 读写
@@ -160,14 +201,23 @@ nano-vpn/
 │   ├── nodes.py           # 订阅解析（sing-box JSON / base64 链接）→ 节点 JSON
 │   ├── config.sh          # 订阅 JSON → runtime.json（jq）
 │   └── core.sh            # sing-box 进程管理、Clash API、status.json
-├── tools/sing-box         # 由 install.sh 下载（gitignore）
 ├── dms/                   # DMS 插件源（plugin.json / NanoVpnWidget.qml /
 │                          #   NanoVpnSettings.qml / translations/zh_CN.json）
-├── install.sh / uninstall.sh
+├── install.sh / uninstall.sh   # 安装器：应用装到 /opt/nano-vpn（见「安装布局」）
 ├── docs/SPEC.md           # 实施规格（协议细节的唯一事实来源）
 ├── docs/CONFIG.md         # 配置文件格式与安全边界
 ├── LICENSE / LICENSE-NOTE.md
 └── README.md
+```
+
+安装后运行时的实际布局：
+
+```
+/opt/nano-vpn/             # ← install.sh 拷贝的 bin/ lib/ dms/ docs/ + install.sh uninstall.sh
+│   └── tools/sing-box     # 由 install.sh 下载（仓库内的 tools/ 被 .gitignore 忽略）
+/usr/local/bin/nanovpn     # → /opt/nano-vpn/bin/nanovpn
+~/.config/nanovpn/         # 每个用户首次运行 nanovpn 时自动生成
+~/.config/DankMaterialShell/plugins/NanoVpn   # → /opt/nano-vpn/dms（nanovpn install-dms）
 ```
 
 ## 常见问题
@@ -195,6 +245,8 @@ nanovpn connect
 删掉本地缓存可强制走全新拉取。
 
 **Q：药丸/弹层没出现？**
+先确认插件装过：`nanovpn install-dms`（用户级，会把插件软链接到
+`~/.config/DankMaterialShell/plugins/NanoVpn` 并把组件加进状态栏）。
 `dms ipc call plugin-scan reload nanoVpn` 失败时（如 DMS 未运行），
 手动到 设置 → Plugins 启用 NanoVpn，并在状态栏右侧组件里确认。
 
@@ -226,6 +278,6 @@ nanovpn connect
 **GPL-3.0-or-later**，见 [`LICENSE`](LICENSE)。
 
 之所以与 sing-box 采用同一许可证：安装产物会捆绑 sing-box 内核
-（`install.sh` 下载到 `tools/` 并以独立进程运行），为避免任何许可歧义，
+（`install.sh` 下载到 `/opt/nano-vpn/tools/` 并以独立进程运行），为避免任何许可歧义，
 整体采用同一许可证。若计划以宽松许可发布**不含内核**的本体，请先阅读
 [`LICENSE-NOTE.md`](LICENSE-NOTE.md)。

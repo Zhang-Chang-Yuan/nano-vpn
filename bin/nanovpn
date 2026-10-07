@@ -17,6 +17,10 @@ nvp_usage() {
   cat <<'EOF'
 用法：nanovpn <命令> [参数]
 
+  应用安装于 /opt/nano-vpn（命令经 /usr/local/bin/nanovpn 暴露，安装：sudo install.sh）；
+  用户数据遵循 XDG，且每个用户各自独立，首次运行本命令时自动初始化：
+    配置 ~/.config/nanovpn    状态 ~/.local/state/nanovpn    缓存 ~/.cache/nanovpn
+
   login [email] [password]    登录（缺省交互式读入）；凭据保存到 ~/.config/nanovpn/credentials (0600)
   logout                      退出登录（删除凭据与 auth）
   checkin                     签到；已签到则提示"今天已经签到过了"
@@ -27,9 +31,11 @@ nvp_usage() {
   toggle                      连/断切换
   status [--json]             状态
   mode <智能首选|全球直连|全局代理>  切换分流模式并记忆
-  tun-setup                   pkexec setcap 授权 TUN 所需 capability
-  install                     下载 sing-box 内核、链接命令、安装 DMS 插件
-  uninstall                   反向
+  tun-setup                   给 sing-box 内核（安装后 /opt/nano-vpn/tools/sing-box）加 cap_net_admin,cap_net_raw（root 直接 setcap，否则 pkexec/sudo）
+  install-dms                 安装/刷新 DMS 状态栏插件（用户级，不需要 root；插件软链接到 /opt/nano-vpn/dms）
+  uninstall-dms               移除 DMS 状态栏插件与状态栏组件（用户级）
+  install                     系统侧安装：委托安装脚本（装到 /opt/nano-vpn + 链接 /usr/local/bin/nanovpn，需要 root）
+  uninstall                   系统侧卸载：委托卸载脚本（只删 /opt/nano-vpn 与命令链接，不动用户数据）
 EOF
 }
 
@@ -239,9 +245,10 @@ cmd_status() {
 # ---------------------------------------------------------------- TUN 授权
 
 cmd_tun_setup() {
+  nvp_require_singbox || true
   local sb
-  sb="$(readlink -f "$NANOVPN_SING_BOX")"
-  [[ -x "$sb" ]] || nvp_die "未找到可执行的 sing-box：$sb（先运行 nanovpn install）"
+  sb="$(readlink -f "$NANOVPN_SING_BOX" 2>/dev/null || printf '%s' "$NANOVPN_SING_BOX")"
+  [[ -x "$sb" ]] || nvp_die "未找到可执行的 sing-box：$sb，请运行 sudo /opt/nano-vpn/install.sh 或 nanovpn install"
   # 已有能力就跳过（避免重复弹密码框）。
   # getcap 常在 /usr/sbin、/sbin，普通用户 PATH 里不一定有，逐个找绝对路径
   local getcap_bin="" c
@@ -252,6 +259,12 @@ cmd_tun_setup() {
     nvp_log_info "sing-box 已具备 cap_net_admin,cap_net_raw 能力：$sb"
     return 0
   fi
+  # root：直接 setcap，免弹密码框
+  if (( EUID == 0 )); then
+    setcap cap_net_admin,cap_net_raw+eip "$sb" || nvp_die "setcap 失败：$sb"
+    nvp_log_info "授权完成：$sb"
+    return 0
+  fi
   # pkexec 会弹 polkit 图形密码框（DMS 自带 polkit agent）
   if command -v pkexec >/dev/null 2>&1; then
     if pkexec setcap cap_net_admin,cap_net_raw+eip "$sb"; then
@@ -259,57 +272,202 @@ cmd_tun_setup() {
       return 0
     fi
   fi
+  # pkexec 不可用（无 polkit agent 的纯终端环境）：sudo 免密可用时直接 sudo setcap
+  if command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+    if sudo setcap cap_net_admin,cap_net_raw+eip "$sb"; then
+      nvp_log_info "授权完成：$sb"
+      return 0
+    fi
+  fi
   nvp_die "自动授权失败，请手动执行：sudo setcap cap_net_admin,cap_net_raw+eip $sb"
 }
 
-# ---------------------------------------------------------------- 安装/卸载
+# ---------------------------------------------------------------- 安装/卸载（系统侧）
 
-# install/uninstall 的完整逻辑（依赖检查、下载内核、DMS 插件、状态栏组件）
-# 由仓库根目录的 install.sh / uninstall.sh 负责，这里直接委托，避免两套实现漂移
+# 系统侧安装：装到 /opt/nano-vpn、下载内核、setcap、链接 /usr/local/bin/nanovpn。
+# 完整逻辑在安装目录（默认 /opt/nano-vpn）下的 install.sh，这里直接委托，避免两套实现漂移。
+# 安装脚本不写 $HOME：用户配置由本 CLI 首次运行时初始化，DMS 插件由 install-dms 负责。
 cmd_install() {
   local script="$NANOVPN_HOME/install.sh"
   [[ -f "$script" ]] || nvp_die "未找到安装脚本：$script"
-  nvp_ensure_dirs
+  nvp_log_info "将调用系统侧安装脚本（需要管理员权限时由脚本用 sudo 重入）"
   exec bash "$script" "$@"
 }
 
-# 轻量卸载：停内核、摘状态栏组件、删插件与命令链接。
-# 保留 ~/.config/nanovpn 与 ~/.local/state/nanovpn（含登录凭据）；
-# 需要连用户数据一起删掉时运行仓库根目录的 uninstall.sh
+# 系统侧卸载：删 /opt/nano-vpn 与命令链接，不碰 $HOME。
 cmd_uninstall() {
-  nvp_core_stop || true
-  local bindir="${XDG_BIN_HOME:-$HOME/.local/bin}"
-  rm -f "$bindir/nanovpn"
-  local plugin_dst="${XDG_CONFIG_HOME:-$HOME/.config}/DankMaterialShell/plugins/NanoVpn"
-  rm -rf "$plugin_dst"
-  # 从 DMS 状态栏移除 nanoVpn 组件（barConfigs[*].rightWidgets，原子写）
-  local dms_settings="${XDG_CONFIG_HOME:-$HOME/.config}/DankMaterialShell/settings.json"
-  if [[ -f "$dms_settings" ]]; then
-    python3 - "$dms_settings" <<'PY' && nvp_log_info "已从 DMS 状态栏移除 nanoVpn 组件" || nvp_log_warn "未能自动改写 $dms_settings，请在 设置 → 状态栏 手动移除"
-import json, os, sys
-path = sys.argv[1]
+  local script="$NANOVPN_HOME/uninstall.sh"
+  [[ -f "$script" ]] || nvp_die "未找到卸载脚本：$script"
+  exec bash "$script" "$@"
+}
+
+# ---------------------------------------------------------------- DMS 状态栏插件（用户级）
+
+NVP_DMS_PLUGIN_ID="NanoVpn"          # plugins/<目录名>，与 dms/plugin.json 的 id 对应
+NVP_DMS_WIDGET_ID="nanoVpn"          # settings.json 的 rightWidgets 里的组件名
+NVP_DMS_ANCHOR_WIDGET="controlCenterButton"
+
+nvp_dms_dir() { printf '%s/DankMaterialShell' "$(nvp_xdg_dir XDG_CONFIG_HOME .config)"; }
+
+# 改写 settings.json 的 rightWidgets：$1=文件 $2=组件名 $3=锚点 $4=insert|remove
+# 退出码：0=已修改 2=无需修改 3=结构不支持（交回手动处理） 1=出错
+nvp_dms_widget_edit() {
+  python3 - "$1" "$2" "$3" "$4" <<'PY'
+import json, os, shutil, stat, sys, tempfile
+
+path, widget, anchor, action = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+
+if not os.path.isfile(path):
+    print(f"未找到 {path}（DMS 尚未生成配置？）", flush=True)
+    sys.exit(3)
+
 try:
-    with open(path, encoding="utf-8") as f:
+    with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
-except Exception:
+except Exception as e:
+    print(f"解析 {path} 失败：{e}", flush=True)
     sys.exit(1)
-changed = False
-for bar in data.get("barConfigs") or []:
-    if not isinstance(bar, dict):
-        continue
-    ws = bar.get("rightWidgets")
-    if isinstance(ws, list) and "nanoVpn" in ws:
-        bar["rightWidgets"] = [w for w in ws if w != "nanoVpn"]
-        changed = True
-if not changed:
-    sys.exit(0)
-tmp = path + ".tmp"
-with open(tmp, "w", encoding="utf-8") as f:
-    json.dump(data, f, ensure_ascii=False, indent=2)
-os.replace(tmp, path)
+
+bar_configs = data.get("barConfigs")
+if not isinstance(bar_configs, list) or not bar_configs or not isinstance(bar_configs[0], dict):
+    print("settings.json 中没有可用的 barConfigs[0]", flush=True)
+    sys.exit(3)
+
+widgets = bar_configs[0].get("rightWidgets")
+if widgets is None:
+    if action == "remove":
+        print(f"barConfigs[0].rightWidgets 不存在，无需移除", flush=True)
+        sys.exit(2)
+    widgets = []
+    bar_configs[0]["rightWidgets"] = widgets
+if not isinstance(widgets, list):
+    print("barConfigs[0].rightWidgets 不是数组", flush=True)
+    sys.exit(3)
+
+if action == "insert":
+    if widget in widgets:
+        print(f'"{widget}" 已在 rightWidgets 中，跳过', flush=True)
+        sys.exit(2)
+    idx = widgets.index(anchor) if anchor in widgets else len(widgets)
+    widgets.insert(idx, widget)
+    done_msg = f'已将 "{widget}" 插入 {path} 的 rightWidgets'
+elif action == "remove":
+    if widget not in widgets:
+        print(f'"{widget}" 不在 rightWidgets 中，跳过', flush=True)
+        sys.exit(2)
+    widgets.remove(widget)
+    done_msg = f'已从 {path} 移除 "{widget}"'
+else:
+    print(f"未知操作：{action}", flush=True)
+    sys.exit(1)
+
+bak = path + ".bak"
+try:
+    shutil.copyfile(path, bak)
+except Exception as e:
+    print(f"备份 {bak} 失败：{e}", flush=True)
+    sys.exit(1)
+
+tmp = None
+try:
+    mode = stat.S_IMODE(os.stat(path).st_mode)
+    fd, tmp = tempfile.mkstemp(prefix=".settings.json.", suffix=".tmp",
+                               dir=os.path.dirname(path) or ".")
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+        f.flush()
+        os.fsync(f.fileno())
+    os.chmod(tmp, mode)
+    os.replace(tmp, path)
+    tmp = None
+except Exception as e:
+    print(f"写入 {path} 失败：{e}", flush=True)
+    sys.exit(1)
+
+print(f"{done_msg}（原文件备份为 {bak}）", flush=True)
+sys.exit(0)
 PY
+}
+
+# 通知 DMS 重载插件（DMS 未运行时静默跳过）
+# DMS 的插件扫描是防抖的：新装插件时它还不认识这个 id，必须先 scan，再轮询 enable。
+nvp_dms_ipc_reload() {
+  command -v dms >/dev/null 2>&1 || return 0
+  dms ipc call plugin-scan scan >/dev/null 2>&1 || true
+  local i
+  for i in 1 2 3 4 5 6 7 8 9 10; do
+    if dms ipc call plugins enable "$NVP_DMS_PLUGIN_ID" >/dev/null 2>&1; then
+      dms ipc call plugin-scan reload "$NVP_DMS_PLUGIN_ID" >/dev/null 2>&1 || true
+      return 0
+    fi
+    sleep 0.5
+  done
+  return 0
+}
+
+cmd_install_dms() {
+  local dms plugin_dir settings rc=0
+  dms="$(nvp_dms_dir)"
+  plugin_dir="$dms/plugins/$NVP_DMS_PLUGIN_ID"
+  settings="$dms/settings.json"
+
+  [[ -d "$NANOVPN_HOME/dms" ]] || nvp_die "安装目录缺少 dms/ 插件源码：$NANOVPN_HOME/dms"
+
+  # 插件目录 = 指向 $NANOVPN_HOME/dms 的软链接：应用升级后插件自动跟着更新。
+  # DMS 只从用户配置目录发现插件，所以必须在用户侧建这一条链接。
+  mkdir -p "$dms/plugins"
+  if [[ -L "$plugin_dir" ]]; then
+    ln -sfn "$NANOVPN_HOME/dms" "$plugin_dir"
+    nvp_log_info "DMS 插件软链接已更新：$plugin_dir → $NANOVPN_HOME/dms"
+  elif [[ -e "$plugin_dir" ]]; then
+    # 旧版本是整目录拷贝（或用户自己放的目录），替换成软链接
+    rm -rf "${plugin_dir:?}"
+    ln -sfn "$NANOVPN_HOME/dms" "$plugin_dir"
+    nvp_log_info "DMS 插件已由拷贝改为软链接：$plugin_dir → $NANOVPN_HOME/dms"
+  else
+    ln -sfn "$NANOVPN_HOME/dms" "$plugin_dir"
+    nvp_log_info "DMS 插件已链接：$plugin_dir → $NANOVPN_HOME/dms"
   fi
-  nvp_log_info "已卸载命令链接与 DMS 插件（用户数据保留在 ~/.config/nanovpn、~/.local/state/nanovpn；彻底卸载请运行仓库根目录 uninstall.sh）"
+
+  nvp_dms_widget_edit "$settings" "$NVP_DMS_WIDGET_ID" "$NVP_DMS_ANCHOR_WIDGET" insert || rc=$?
+  case "$rc" in
+    0) nvp_log_info "状态栏组件已添加，DMS 会自动重载（若未生效可重启 DMS）" ;;
+    2) nvp_log_info "状态栏组件已存在，跳过" ;;
+    3) nvp_log_warn "未能自动改写 settings.json，请手动在 设置 → 状态栏 → 右侧组件 中添加 NanoVpn" ;;
+    *) nvp_log_warn "settings.json 更新失败（退出码 $rc）" ;;
+  esac
+  nvp_dms_ipc_reload
+  nvp_log_info "DMS 插件安装完成（用户级，未使用 root）"
+}
+
+cmd_uninstall_dms() {
+  local dms plugin_dir settings rc=0
+  dms="$(nvp_dms_dir)"
+  plugin_dir="$dms/plugins/$NVP_DMS_PLUGIN_ID"
+  settings="$dms/settings.json"
+
+  if [[ -L "$plugin_dir" ]]; then
+    rm -f "$plugin_dir"
+    nvp_log_info "已删除插件软链接：$plugin_dir"
+  elif [[ -d "$plugin_dir" ]]; then
+    rm -rf "${plugin_dir:?}"
+    nvp_log_info "已删除插件目录：$plugin_dir"
+  else
+    nvp_log_info "插件目录不存在，跳过"
+  fi
+
+  nvp_dms_widget_edit "$settings" "$NVP_DMS_WIDGET_ID" "$NVP_DMS_ANCHOR_WIDGET" remove || rc=$?
+  case "$rc" in
+    0) nvp_log_info "已从状态栏移除组件" ;;
+    2) nvp_log_info "状态栏组件不存在，跳过" ;;
+    *) nvp_log_warn "settings.json 未改动，请手动在 设置 → 状态栏 中移除 NanoVpn" ;;
+  esac
+  nvp_dms_ipc_reload
+  nvp_log_info "DMS 插件卸载完成"
+  printf '用户数据仍在：%s（配置）、%s（状态）、%s（缓存）\n' \
+    "$NANOVPN_CONFIG_DIR" "$NANOVPN_STATE_DIR" "$NANOVPN_CACHE_DIR"
+  printf '如需彻底清除：rm -rf %s %s %s\n' \
+    "$NANOVPN_CONFIG_DIR" "$NANOVPN_STATE_DIR" "$NANOVPN_CACHE_DIR"
 }
 
 # ---------------------------------------------------------------- 分发
@@ -317,6 +475,14 @@ PY
 main() {
   local cmd="${1:-}"
   shift || true
+  case "$cmd" in
+    ""|-h|--help|help) nvp_usage; return 0 ;;
+    # 系统侧命令不初始化用户目录（安装脚本要求完全不碰 $HOME）
+    install)   cmd_install "$@" ;;
+    uninstall) cmd_uninstall "$@" ;;
+  esac
+  # 其余命令：首次运行即把用户配置初始化到自己的家目录（多用户各自独立）
+  nvp_init_user_config
   case "$cmd" in
     login)     cmd_login "$@" ;;
     logout)    cmd_logout "$@" ;;
@@ -336,9 +502,8 @@ main() {
     status)    cmd_status "$@" ;;
     mode)      nvp_mode_set "${1:-}" ;;
     tun-setup) cmd_tun_setup "$@" ;;
-    install)   cmd_install "$@" ;;
-    uninstall) cmd_uninstall "$@" ;;
-    ""|-h|--help|help) nvp_usage ;;
+    install-dms)   cmd_install_dms "$@" ;;
+    uninstall-dms) cmd_uninstall_dms "$@" ;;
     *) nvp_die "未知命令：$cmd（--help 看用法）" ;;
   esac
 }

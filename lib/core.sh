@@ -80,7 +80,8 @@ nvp_core_stop() {
 
 nvp_core_start() {
   local node_tag="$1"
-  [[ -x "$NANOVPN_SING_BOX" ]] || nvp_die "未找到可执行的 sing-box：$NANOVPN_SING_BOX（先运行 nanovpn install）"
+  nvp_require_singbox || true
+  [[ -x "$NANOVPN_SING_BOX" ]] || nvp_die "未找到可执行内核，请运行 sudo /opt/nano-vpn/install.sh 或 nanovpn install"
   nvp_build_runtime "$node_tag"
   nvp_ensure_dirs
   nvp_core_stop || true

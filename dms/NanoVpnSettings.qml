@@ -54,7 +54,7 @@ PluginSettings {
     StringSetting {
         settingKey: "nanoPath"
         label: I18n.trFor("nanoVpn", "nanovpn Command")
-        description: I18n.trFor("nanoVpn", "Path or name of the nanovpn CLI used by the widget")
+        description: I18n.trFor("nanoVpn", "Path or name of the nanovpn CLI used by the widget (nanovpn in PATH, or /opt/nano-vpn/bin/nanovpn)")
         placeholder: "nanovpn"
         defaultValue: "nanovpn"
     }

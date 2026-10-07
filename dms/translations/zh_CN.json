@@ -125,6 +125,9 @@
     "Password": {
         "Password": "密码"
     },
+    "Path or name of the nanovpn CLI used by the widget (nanovpn in PATH, or /opt/nano-vpn/bin/nanovpn)": {
+        "Path or name of the nanovpn CLI used by the widget (nanovpn in PATH, or /opt/nano-vpn/bin/nanovpn)": "控件使用的 nanovpn CLI 路径或名称（可填 PATH 中的 nanovpn，或 /opt/nano-vpn/bin/nanovpn）"
+    },
     "Please enter email and password": {
         "Please enter email and password": "请输入邮箱和密码"
     },

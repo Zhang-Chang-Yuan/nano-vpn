@@ -1,13 +1,25 @@
 # 配置文件与安全边界
 
-nano-vpn 的运行时数据**全部放在仓库之外**，分两个目录：
+应用本体装在 `/opt/nano-vpn`（`root:root`，含带 `cap_net_admin` 的 `tools/sing-box`），
+命令通过 `/usr/local/bin/nanovpn` 软链接暴露。**安装器（`sudo install.sh`）只写系统目录，
+完全不碰 `$HOME`**：用户运行时数据全部由 CLI 首次运行时在自己的家目录初始化，
+按 XDG Base Directory 规范分三个目录（`XDG_CONFIG_HOME` / `XDG_STATE_HOME` / `XDG_CACHE_HOME`
+生效时优先，相对路径按规范忽略）：
 
 | 目录 | 内容 | 权限 |
 |---|---|---|
-| `~/.config/nanovpn/` | 配置：`settings`、`credentials` | `700`，文件 `0600` |
-| `~/.local/state/nanovpn/` | 状态：`auth`、`subscription.json`、`nodes.json`、`runtime.json`、`panel.json`、`status.json`、`sing-box.pid`、`sing-box.log`、`cache/` | `700`，`auth` `0600` |
+| `~/.config/nanovpn/` | 配置：`settings`（首次运行自动生成）、`credentials` | `700`，文件 `0600` |
+| `~/.local/state/nanovpn/` | 状态：`auth`、`subscription.json`、`nodes.json`、`runtime.json`、`panel.json`、`status.json`、`sing-box.pid`、`sing-box.log` | `700`，`auth` `0600` |
+| `~/.cache/nanovpn/` | 可再生缓存：sing-box 工作目录（`-D`，rule_set 的 srs 下载、fakeip/rdrc 缓存） | `700` |
 
-目录由 `nanovpn` 首次运行时创建（`install.sh` 也会预先建好空目录）。
+**多用户**：三个目录都属于当前用户，每个用户第一次运行 `nanovpn` 时各自生成一份，
+互不可见、互不影响；root 只装 `/opt`，不会替任何用户建配置。
+
+用户目录里唯一的软链接是 DMS 插件目录
+`~/.config/DankMaterialShell/plugins/NanoVpn → /opt/nano-vpn/dms`
+（DMS 只从该目录发现插件，插件源码留在 `/opt`，升级后自动是新版），
+由用户级命令 `nanovpn install-dms` 建立；配置、状态、缓存都是真实文件。
+命令链接在系统目录 `/usr/local/bin`，不在 `$HOME`。
 
 ## settings（KEY=VALUE 纯文本）
 
@@ -46,7 +58,7 @@ password=********
 | `panel.json` | 最近一次账号信息（套餐/流量/到期/签到）缓存 | 中：含邮箱 |
 | `status.json` | 连接状态（state/node/mode/ip/uptime…），DMS 轮询用 | 低 |
 | `sing-box.pid` / `sing-box.log` | 内核 PID / 日志尾部 | 低-中：日志可能含节点域名与错误详情，**不含账号密码** |
-| `cache/` | sing-box 工作目录（fakeip/rdrc 缓存、rule_set 的 srs 下载） | 低 |
+| `~/.cache/nanovpn/` | sing-box 工作目录（`-D`：fakeip/rdrc 缓存、rule_set 的 srs 下载），可随时删除 | 低 |
 
 `subscription.json` 只做短时缓存（10 分钟）：`subscribe_url` 不可缓存，
 每次连接前都重新向面板获取（出口 IP 会轮换）。
@@ -60,11 +72,25 @@ password=********
   把 `~/.config` 或 `~/.local/state` 提交进 git —— 都会带走凭据与订阅 token。
 - ⚠️ 订阅 URL 的 token 等同于账号的流量配额：泄露后他人可直接用你的订阅。
 - ✅ 登录载荷走 HTTPS；脚本与文档中**不存在**任何写死的账号、密码或 sudo 密码。
-- ✅ 注销手段：`nanovpn logout` 删 credentials 与 auth；`uninstall.sh` 删整个两个目录。
+- ✅ 注销手段：`nanovpn logout` 删 credentials 与 auth；删配置/状态/缓存目录见下节。
 
 ## 卸载后的残留
 
-`uninstall.sh` 会删除 `~/.config/nanovpn/`、`~/.local/state/nanovpn/`、
-插件目录与 `~/.local/bin/nanovpn` 符号链接；保留 `settings.json.bak`
-（DMS 配置备份，确认无恙后手动删除）与 `tools/sing-box`（随仓库保留，
-撤销 TUN 能力：`sudo setcap -r <仓库>/tools/sing-box`）。
+**系统侧**：`sudo uninstall.sh` 只删除 `/opt/nano-vpn`（含内核与其 capability）与
+`/usr/local/bin/nanovpn`（**只删软链接**，普通文件不动），不碰任何用户目录。
+
+- `--keep-app`：保留 `/opt/nano-vpn`，只删命令链接。
+
+**用户侧**（各用户自己执行，root 不代删）：
+
+```bash
+nanovpn uninstall-dms        # 删插件软链接 + settings.json 里的 nanoVpn 组件
+rm -rf ~/.config/nanovpn ~/.local/state/nanovpn ~/.cache/nanovpn   # 配置/状态/缓存
+```
+
+- `nanovpn uninstall-dms` 只删插件与状态栏组件，**保留登录态**；
+  它输出里会给出上面那条 `rm -rf`（含展开后的真实路径）。
+- 注意顺序：插件是软链接到 `/opt/nano-vpn/dms`，`sudo uninstall.sh` 之后链接会悬空，
+  所以要先跑 `nanovpn uninstall-dms`。
+- 保留物：`settings.json.bak`（DMS 配置备份，确认无恙后手动删除）。
+- 源码仓库不在卸载范围内（应用是从它安装出去的拷贝），确认不用后可自行 `rm -rf`。
